@@ -84,6 +84,7 @@ export async function runBskSmokeTask({
     url: taskUrl(task, serverInfo.baseUrl, runId, seed),
   };
   let sessionId;
+  let usedMock = false;
   let executionError;
   await mkdir(outputDirectory, { recursive: true });
 
@@ -245,6 +246,42 @@ export async function runBskSmokeTask({
           String(resolveValue(step.device, variables)),
         ]);
         break;
+      case "mock": {
+        // `mode: "clear"` is the reset; anything else adds one rule. Rules
+        // live in the browser profile rather than the session, so a case that
+        // adds one must clear it — see the cleanup in the `finally` below.
+        usedMock = true;
+        if (step.mode === "clear") {
+          result = await bsk(["mock", "clear", ...session]);
+          break;
+        }
+        result = await bsk([
+          "mock",
+          "add",
+          ...session,
+          "--url",
+          String(resolveValue(step.url, variables)),
+          ...(step.method ? ["--method", String(resolveValue(step.method, variables))] : []),
+          ...(step.status === undefined ? [] : ["--status", String(step.status)]),
+          // A JSON body is data, not a template: `{...}` in it would be read
+          // as a workflow variable by `resolveValue` and throw. So structured
+          // bodies go through `bodyJson`, which is stringified verbatim, and
+          // `body` stays for plain text that may reference variables.
+          ...(step.bodyJson !== undefined
+            ? ["--body", JSON.stringify(step.bodyJson)]
+            : step.body === undefined
+              ? []
+              : ["--body", String(resolveValue(step.body, variables))]),
+          ...(step.delay === undefined ? [] : ["--delay", String(step.delay)]),
+          ...(step.note ? ["--note", String(resolveValue(step.note, variables))] : []),
+          ...(step.disabled ? ["--disabled"] : []),
+          ...(step.headers ?? []).flatMap((header) => [
+            "--header",
+            String(resolveValue(header, variables)),
+          ]),
+        ]);
+        break;
+      }
       case "request-help":
         result = await bsk([
           "request-help",
@@ -274,6 +311,20 @@ export async function runBskSmokeTask({
     executionError = error instanceof Error ? error.message : String(error);
   } finally {
     if (sessionId) {
+      // Mock rules are stored in the browser profile, not the session, so a
+      // rule left behind would rewrite requests for every later case in the
+      // same run. Clearing must happen while the session still exists,
+      // because `tool.mock` routes through the session queue. Only cases that
+      // touched mocking pay for the extra step.
+      if (usedMock) {
+        try {
+          await bsk(["mock", "clear", "--session", sessionId], { timeout: 30_000 });
+        } catch (error) {
+          executionError ??= `could not clear mock rules: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+      }
       try {
         const stopped = await bsk(["session", "stop", sessionId], { timeout: 90_000 });
         evidence.sessionStopped =

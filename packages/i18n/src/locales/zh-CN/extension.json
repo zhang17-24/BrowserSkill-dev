@@ -114,7 +114,16 @@
     "remoteSavedDisabled": "配对成功，连接开关当前关闭。开启后即可连接。",
     "remoteFormatError": "配对链接不完整或格式不正确，请重新复制服务器提供的完整链接。",
     "remotePermissionsInfo": "远程连接权限说明",
-    "remotePermissionsHint": "服务器可操作独立任务窗口。借用已有标签页时，是否请求确认取决于下方的“自动化设置”。"
+    "remotePermissionsHint": "服务器可操作独立任务窗口。借用已有标签页时，是否请求确认取决于下方的“自动化设置”。",
+    "mock": {
+      "sectionTitle": "Mock 规则",
+      "cardDesc": "查看和编辑改写请求返回的规则",
+      "empty": "还没有 Mock 规则",
+      "openPage": "打开规则页",
+      "clearAll": "清空全部",
+      "count": "{{count}} 条规则",
+      "scopeHint": "对本浏览器配置下的所有标签页生效。"
+    }
   },
   "controlOverlay": {
     "status": "Agent 正在控制",
@@ -290,5 +299,34 @@
       "resize": "调整窗口",
       "emulate": "调整浏览器模拟设置"
     }
+  },
+  "mock": {
+    "title": "Mock 规则",
+    "subtitle": "改写请求返回，让前端在后端就绪前就能联调。",
+    "loading": "加载中…",
+    "empty": "还没有规则。可以在这里新建，也可以让你的 Agent 执行 bsk mock add。",
+    "addRule": "新建规则",
+    "editRule": "编辑规则",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "enabled": "已启用",
+    "urlPattern": "URL 匹配",
+    "urlPatternHint": "对完整请求 URL 匹配。* 匹配任意字符，? 匹配单个字符。",
+    "method": "请求方法",
+    "methodAny": "任意",
+    "status": "状态码",
+    "headers": "响应头",
+    "headersHint": "每行一个，格式为 Name: value",
+    "body": "响应体",
+    "delay": "延迟（毫秒）",
+    "note": "备注",
+    "import": "导入",
+    "export": "导出",
+    "invalidUrl": "必须填写 URL 匹配规则",
+    "invalidStatus": "状态码必须在 100 到 599 之间",
+    "importFailed": "导入失败：{{message}}",
+    "deleteConfirm": "确认删除这条规则？"
   }
 }

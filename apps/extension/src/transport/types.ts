@@ -875,6 +875,66 @@ export interface EmulateResult {
 }
 
 // --------------------------------------------------------------------------
+// Request-mocking rules (`tool.mock`). Mirrors crates/bsk-protocol/src/tools/mock.rs.
+// --------------------------------------------------------------------------
+
+/** Which CRUD operation a `tool.mock` call performs. */
+export type MockAction = "add" | "list" | "remove" | "clear" | "replace_all";
+
+/** How the interceptor decodes {@link MockRule.body}. */
+export type MockBodyEncoding = "text" | "base64";
+
+export interface MockHeader {
+  name: string;
+  value: string;
+}
+
+/**
+ * A single mock rule.
+ *
+ * A matched request is fulfilled locally, so the origin server never sees
+ * it: this replaces the response, it does not redirect the request.
+ */
+export interface MockRule {
+  /** Minted by the extension on `add`; always present in results. */
+  id?: string;
+  /** Disabled rules stay stored but never match. */
+  enabled: boolean;
+  /** Glob matched against the full request URL. `*` is any run of
+   * characters (including `/`), `?` is exactly one. */
+  url_pattern: string;
+  /** Uppercase HTTP method to match. Absent matches every method. */
+  method?: string;
+  status: number;
+  headers: MockHeader[];
+  body: string;
+  body_encoding: MockBodyEncoding;
+  delay_ms?: number;
+  note?: string;
+}
+
+export interface MockParams {
+  /** Routing handle only — the rule itself is browser-profile scoped. */
+  session_id: string;
+  action: MockAction;
+  /** Required by `add`. */
+  rule?: MockRule;
+  /** Required by `remove`. */
+  id?: string;
+  /** Required by `replace_all`. */
+  rules?: MockRule[];
+}
+
+export interface MockResult {
+  action: MockAction;
+  /** The rule set in effect after the action. */
+  rules: MockRule[];
+  created_id?: string;
+  removed?: number;
+  note?: string;
+}
+
+// --------------------------------------------------------------------------
 // Semantic record payloads mirror the versioned Rust protocol models.
 // --------------------------------------------------------------------------
 

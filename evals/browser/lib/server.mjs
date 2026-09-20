@@ -104,6 +104,17 @@ export function createEvalServer({ host = "127.0.0.1", port = 0, fixtureRegistry
       return json(response, 200, { ok: true, token: "NETWORK-73" });
     }
 
+    // Stands in for the backend a frontend team is waiting on. It answers
+    // `source: "real"` and records a `backend.probe` event, so a case can
+    // assert both that the un-mocked page really reached it and that a mocked
+    // page did not.
+    if (request.method === "GET" && url.pathname === "/api/mock-probe") {
+      const runId = url.searchParams.get("run");
+      if (!validRunId(runId)) return json(response, 400, { error: "invalid run id" });
+      record(runId, "backend.probe", { token: "REAL-1" }, { path: url.pathname });
+      return json(response, 200, { source: "real", token: "REAL-1" });
+    }
+
     if (request.method !== "GET") return json(response, 405, { error: "method not allowed" });
 
     const runId = url.searchParams.get("run") ?? "manual";

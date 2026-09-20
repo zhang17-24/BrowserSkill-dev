@@ -1,0 +1,76 @@
+{
+  "$schema": "../../schemas/case.schema.json",
+  "schemaVersion": 1,
+  "id": "mock-response-override",
+  "title": "Replace a request response without a backend",
+  "order": 70,
+  "suite": "core",
+  "tags": ["mock", "network", "response"],
+  "fixture": { "startPath": "/mock/probe" },
+  "prompts": {
+    "en": "Open {url}. The page calls an API and shows what it received. Add a rule that replaces that API's response with the JSON {\\\"source\\\":\\\"mock\\\",\\\"token\\\":\\\"MOCK-1\\\"}, then reload the page and confirm it now shows the replaced payload. Remove the rule when you are done, then close the browser session.",
+    "zh-CN": "打开 {url}。页面会调用一个 API 并显示收到内容。添加一条规则，把该 API 的返回替换为 JSON {\\\"source\\\":\\\"mock\\\",\\\"token\\\":\\\"MOCK-1\\\"}，然后刷新页面，确认显示的是替换后的内容。完成后删除该规则，再关闭浏览器会话。"
+  },
+  "coverage": [
+    "session.start",
+    "session.stop",
+    "page.navigate",
+    "page.reload",
+    "assist.mock"
+  ],
+  "assertions": {
+    "site": [
+      {
+        "label": "the un-mocked page reached the real backend",
+        "type": "mock.probe",
+        "where": { "data.source": "real" },
+        "minCount": 1
+      },
+      {
+        "label": "the page received the replaced payload after the rule was added",
+        "type": "mock.probe",
+        "where": { "data.source": "mock" },
+        "minCount": 1
+      },
+      {
+        "label": "the origin server was contacted once, and only for the un-mocked load",
+        "type": "backend.probe",
+        "minCount": 1,
+        "maxCount": 1
+      }
+    ],
+    "response": [
+      { "label": "the rule was created with an id", "includes": "created_id" },
+      { "label": "the rule carries the replacement payload", "includes": "MOCK-1" }
+    ],
+    "adapter": [{ "label": "browser session was closed", "key": "sessionStopped" }]
+  },
+  "smoke": {
+    "steps": [
+      { "action": "mock", "mode": "clear" },
+      { "action": "navigate" },
+      {
+        "action": "wait-site-event",
+        "type": "mock.probe",
+        "where": { "data.source": "real" }
+      },
+      {
+        "action": "mock",
+        "mode": "add",
+        "url": "{baseUrl}/api/mock-probe*",
+        "method": "GET",
+        "status": 200,
+        "headers": ["content-type: application/json"],
+        "bodyJson": { "source": "mock", "token": "MOCK-1" },
+        "note": "eval mock-response-override"
+      },
+      { "action": "reload" },
+      {
+        "action": "wait-site-event",
+        "type": "mock.probe",
+        "where": { "data.source": "mock" }
+      },
+      { "action": "mock", "mode": "clear" }
+    ]
+  }
+}

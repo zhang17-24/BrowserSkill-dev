@@ -21,6 +21,7 @@ pub mod install_skill;
 pub mod interaction;
 pub(crate) mod interaction_policy;
 pub mod logs;
+pub mod mock;
 pub mod navigate;
 pub mod network;
 pub mod observe;
@@ -53,6 +54,7 @@ use crate::cli::install_skill::InstallSkillArgs;
 use crate::cli::interaction::{
     BlurArgs, ClickArgs, FillArgs, FocusArgs, HoverArgs, PressArgs, SelectArgs,
 };
+use crate::cli::mock::MockCmd;
 use crate::cli::navigate::{NavigateCommand, NavigateHistoryArgs, ReloadArgs};
 use crate::cli::network::NetworkArgs;
 use crate::cli::observe::ObserveArgs;
@@ -140,6 +142,9 @@ pub enum Command {
 
     /// Emulate a mobile device environment (viewport, UA, touch) on a tab.
     Emulate(EmulateArgs),
+
+    /// Manage request-mocking rules for frontend work without a backend.
+    Mock(MockCmd),
 
     /// Capture a PNG of the viewport, full page, DOM element or Canvas region.
     Screenshot(ScreenshotArgs),

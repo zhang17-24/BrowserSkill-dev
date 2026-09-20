@@ -256,6 +256,50 @@ and HTML extraction do not. Repainting is allowed; changed identity/geometry/hit
 targets are rejected. Verify the result, using DOM refs for revealed controls;
 inspect `effect_state=unknown` before retrying with a new capture.
 
+## Mocking requests
+
+```sh
+bsk mock add --url 'https://api.example.com/api/user/*' --method GET \
+  --status 200 --header 'content-type: application/json' \
+  --body '{"id":1,"name":"mock"}' --delay 300 --session <id>
+bsk mock list | bsk mock rm <id> | bsk mock clear
+bsk mock export ./mocks.json | bsk mock import ./mocks.json [--merge]
+```
+
+Use this when the backend is not ready, is broken, or returns a shape the
+frontend needs to handle. It replaces the **response**: the request is
+fulfilled locally and the origin server never sees it. This is not a
+redirect — if the goal is "send this request somewhere else instead", say so,
+because a mock rule will not do it.
+
+Rules are stored in the extension's storage, scoped to the browser profile
+rather than to a session. They survive page reloads and daemon restarts.
+`--session` only chooses which connection to route the call over, so omit it
+when exactly one session is active. `bsk mock list` prints the table; the same
+table is on the extension's rules page, where the user can edit it by hand.
+
+Coverage is the page's own `fetch` and `XMLHttpRequest` calls. It does **not**
+cover `<img>`, `<script>`, CSS or document navigations, and it does not cover
+requests made inside a Service Worker. If a request in DevTools is not a
+fetch/XHR, a rule will silently never fire — check the request type before
+promising the user it can be mocked, and say plainly when it cannot.
+
+Practical notes:
+
+- Quote the glob; the shell will otherwise expand `*`. `*` matches any
+  characters including `/`, `?` matches one. Matching is case-sensitive
+  against the full URL, query string included.
+- Read `bsk network` first to get the exact URL the page requests rather than
+  reconstructing it from memory.
+- The first matching rule wins, in the order `bsk mock list` prints. Put
+  narrow patterns above broad ones.
+- `--delay` makes loading and timeout states reachable; `--disabled` parks a
+  rule without deleting it.
+- `--body-file <path>` reads UTF-8 text; `--body-file-base64 <path>` base64
+  encodes bytes, for images and other binary payloads.
+- Clear rules you no longer need. A stale rule silently rewrites the user's
+  traffic, and they will blame the site.
+
 ## Files and other tools
 
 ```sh

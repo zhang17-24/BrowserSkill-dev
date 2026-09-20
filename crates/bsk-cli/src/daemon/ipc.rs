@@ -258,53 +258,23 @@ pub fn full_handler(status: DaemonStatus, state: Arc<DaemonState>) -> RpcHandler
                 Method::TransferFinish => handle_transfer_finish(&state, params),
                 Method::TransferRead => handle_transfer_read(&state, params),
                 Method::TransferRelease => handle_transfer_release(&state, params),
-                Method::ToolTabList
-                | Method::ToolTabCreate
-                | Method::ToolTabClose
-                | Method::ToolTabSelect
-                | Method::ToolTabBorrow
-                | Method::ToolTabReturn
-                | Method::ToolWindowResize
-                | Method::ToolEmulate
-                | Method::ToolScreenshot
-                | Method::ToolScreenshotFullPage
-                | Method::ToolScreenshotRead
-                | Method::ToolScreenshotRelease
-                | Method::ToolConsole
-                | Method::ToolNetwork
-                | Method::ToolSnapshot
-                | Method::ToolObserve
-                | Method::ToolGetHtml
-                | Method::ToolNavigate
-                | Method::ToolNavigateBack
-                | Method::ToolNavigateForward
-                | Method::ToolReload
-                | Method::ToolClick
-                | Method::ToolHover
-                | Method::ToolWheel
-                | Method::ToolScrollTo
-                | Method::ToolFocus
-                | Method::ToolBlur
-                | Method::ToolFill
-                | Method::ToolPress
-                | Method::ToolSelect
-                | Method::ToolUpload
-                | Method::ToolDownload
-                | Method::ToolEvaluate
-                | Method::ToolWaitForNavigation
-                | Method::ToolRequestHelp
-                | Method::ToolRecordStart
-                | Method::ToolRecordStop
-                | Method::ToolRecordAwait => {
-                    handle_tool_dispatch(&state, rpc_id, method, params).await
-                }
                 Method::ToolWaitMs => handle_wait_ms(&state.abort_registry, rpc_id, params).await,
                 Method::Cancel => handle_cancel(&state, params),
-                other => ResponseBody::Err(RpcError {
-                    code: ErrorCode::UnknownMethod,
-                    message: format!("method not implemented yet: {other:?}"),
-                    data: None,
-                }),
+                other => {
+                    // The queued-tool list lives in `is_queued_tool` rather
+                    // than inline so it can be asserted in a test: a method
+                    // missing from it fails only at runtime, as
+                    // `unknown_method`, which the compiler cannot catch.
+                    if is_queued_tool(&other) {
+                        handle_tool_dispatch(&state, rpc_id, other, params).await
+                    } else {
+                        ResponseBody::Err(RpcError {
+                            code: ErrorCode::UnknownMethod,
+                            message: format!("method not implemented yet: {other:?}"),
+                            data: None,
+                        })
+                    }
+                }
             };
             if let Some(ticket) = ticket {
                 state.audit.finish(ticket, &body);
@@ -770,6 +740,61 @@ fn tool_dispatch_timeout(params: &Value) -> Result<Duration, RpcError> {
         data: None,
     })?;
     Ok(Duration::from_millis(u64::from(ms)))
+}
+
+/// Does this RPC reach the extension through the per-session tool queue?
+///
+/// This is the single source of truth for "which `tool.*` methods the daemon
+/// forwards". It lives outside the dispatch match because a method missing
+/// from it does not fail to compile — it fails at runtime with
+/// `unknown_method`, which reads to the caller like a version skew rather
+/// than a missing wiring.
+///
+/// `tool.session_start` / `tool.session_stop` are deliberately absent: they
+/// manage the queue lifecycle itself and take the direct path.
+fn is_queued_tool(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::ToolTabList
+            | Method::ToolTabCreate
+            | Method::ToolTabClose
+            | Method::ToolTabSelect
+            | Method::ToolTabBorrow
+            | Method::ToolTabReturn
+            | Method::ToolWindowResize
+            | Method::ToolEmulate
+            | Method::ToolMock
+            | Method::ToolScreenshot
+            | Method::ToolScreenshotFullPage
+            | Method::ToolScreenshotRead
+            | Method::ToolScreenshotRelease
+            | Method::ToolConsole
+            | Method::ToolNetwork
+            | Method::ToolSnapshot
+            | Method::ToolObserve
+            | Method::ToolGetHtml
+            | Method::ToolNavigate
+            | Method::ToolNavigateBack
+            | Method::ToolNavigateForward
+            | Method::ToolReload
+            | Method::ToolClick
+            | Method::ToolHover
+            | Method::ToolWheel
+            | Method::ToolScrollTo
+            | Method::ToolFocus
+            | Method::ToolBlur
+            | Method::ToolFill
+            | Method::ToolPress
+            | Method::ToolSelect
+            | Method::ToolUpload
+            | Method::ToolDownload
+            | Method::ToolEvaluate
+            | Method::ToolWaitForNavigation
+            | Method::ToolRequestHelp
+            | Method::ToolRecordStart
+            | Method::ToolRecordStop
+            | Method::ToolRecordAwait
+    )
 }
 
 fn tool_dispatch_transport_timeout(method: &Method, params: &Value) -> Result<Duration, RpcError> {
@@ -1750,6 +1775,51 @@ mod tests {
     #[test]
     fn session_stop_timeout_covers_stop_round_trip() {
         assert!(DEFAULT_SESSION_STOP_TIMEOUT > DEFAULT_TOOL_TIMEOUT + DEFAULT_RPC_TIMEOUT);
+    }
+
+    #[test]
+    fn mock_is_routed_through_the_session_queue() {
+        // Regression guard for the failure mode this list exists to prevent:
+        // a method that is not in `is_queued_tool` falls through to the
+        // `unknown_method` arm, which reads to a caller like version skew
+        // rather than missing wiring.
+        assert!(is_queued_tool(&Method::ToolMock));
+    }
+
+    #[test]
+    fn session_lifecycle_methods_bypass_the_queue() {
+        // They manage the queue lifecycle itself, so routing them through it
+        // would deadlock.
+        assert!(!is_queued_tool(&Method::ToolSessionStart));
+        assert!(!is_queued_tool(&Method::ToolSessionStop));
+        assert!(!is_queued_tool(&Method::SessionStart));
+        assert!(!is_queued_tool(&Method::BrowserList));
+        assert!(!is_queued_tool(&Method::Cancel));
+    }
+
+    #[test]
+    fn queued_tools_cover_every_forwarded_family() {
+        // One representative per family, so a whole family dropped from the
+        // list is caught rather than just the newest member.
+        for method in [
+            Method::ToolClick,
+            Method::ToolSnapshot,
+            Method::ToolScreenshot,
+            Method::ToolNavigate,
+            Method::ToolTabList,
+            Method::ToolWindowResize,
+            Method::ToolEmulate,
+            Method::ToolMock,
+            Method::ToolNetwork,
+            Method::ToolConsole,
+            Method::ToolEvaluate,
+            Method::ToolUpload,
+            Method::ToolDownload,
+            Method::ToolRequestHelp,
+            Method::ToolRecordStart,
+        ] {
+            assert!(is_queued_tool(&method), "{method:?} should be queued");
+        }
     }
 
     #[test]

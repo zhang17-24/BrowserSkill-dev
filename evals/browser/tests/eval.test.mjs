@@ -40,13 +40,14 @@ test("case manifests are discovered, ordered, and grouped into suites", () => {
       "tabs",
       "diagnostics",
       "mobile-emulation",
+      "mock-response-override",
       "generated-form",
       "oopif-scrollbars",
       "snapshot-coordinates",
     ],
   );
   assert.deepEqual(repositorySummary(cases, fixtureRegistry).suites, {
-    core: 6,
+    core: 7,
     matrix: 1,
     regression: 2,
   });
@@ -55,9 +56,9 @@ test("case manifests are discovered, ordered, and grouped into suites", () => {
 test("repository validation links every case to a fixture and valid workflow evidence", () => {
   assert.deepEqual(validateRepositoryCases(cases, fixtureRegistry), []);
   const summary = repositorySummary(cases, fixtureRegistry);
-  assert.equal(summary.cases, 9);
-  assert.equal(summary.fixtureModules, 10);
-  assert.equal(summary.fixtureRoutes, 18);
+  assert.equal(summary.cases, 10);
+  assert.equal(summary.fixtureModules, 11);
+  assert.equal(summary.fixtureRoutes, 19);
 });
 
 test("manifest validation rejects unknown operations and incomplete workflow steps", () => {
@@ -162,6 +163,44 @@ test("prompt rendering is run-scoped, localized, and seed-aware", () => {
   assert.match(renderPrompt(task, { ...input, locale: "zh-CN" }), /seeded form/);
 });
 
+test("mock case separates a replaced response from a redirect", () => {
+  const task = getTask("mock-response-override", cases);
+  const probe = (source) => ({ type: "mock.probe", data: { source } });
+
+  const passed = verifyTask(task, {
+    events: [probe("real"), probe("mock"), { type: "backend.probe", data: {} }],
+    responseText: '{"created_id":"m_1","rules":[{"body":"MOCK-1"}]}',
+    adapterEvidence: { sessionStopped: true },
+  });
+  assert.equal(passed.status, "passed");
+
+  // The load that was served by the rule must not also have reached the
+  // origin: a second backend hit means the request went out and the page was
+  // reading a real response, which is a redirect rather than a mock.
+  const redirected = verifyTask(task, {
+    events: [probe("real"), probe("mock"), { type: "backend.probe" }, { type: "backend.probe" }],
+    responseText: '{"created_id":"m_1","rules":[{"body":"MOCK-1"}]}',
+    adapterEvidence: { sessionStopped: true },
+  });
+  assert.equal(redirected.status, "failed");
+  const bounded = redirected.checks.find(({ label }) => label.includes("origin server"));
+  assert.equal(bounded.status, "failed");
+  assert.equal(bounded.actual, 2);
+  assert.equal(bounded.expected, "between 1 and 1");
+
+  // A missing maxCount still behaves as a plain lower bound.
+  const unbounded = verifyTask(task, {
+    events: [probe("real"), probe("mock"), { type: "backend.probe" }, { type: "backend.probe" }],
+    responseText: '{"created_id":"m_1","rules":[{"body":"MOCK-1"}]}',
+    adapterEvidence: { sessionStopped: true },
+  });
+  assert.equal(
+    unbounded.checks.find(({ label }) => label === "the un-mocked page reached the real backend")
+      .status,
+    "passed",
+  );
+});
+
 test("command adapter carries a run from process launch through oracle verification", async () => {
   await withServer(async (server, serverInfo) => {
     const script = `
@@ -228,11 +267,11 @@ test("report summary keeps partial verification distinct from full verification"
   assert.equal(rows[0].errors, 1);
 });
 
-test("coverage inventory contains all 28 operations and three manual lanes", () => {
+test("coverage inventory contains all 29 operations and three manual lanes", () => {
   const coverage = buildOperationCoverage(cases);
   const operations = coverage.map(({ operation }) => operation);
-  assert.equal(operations.length, 28);
-  assert.equal(new Set(operations).size, 28);
+  assert.equal(operations.length, 29);
+  assert.equal(new Set(operations).size, 29);
   assert.deepEqual(
     coverage.filter(({ directSmoke }) => !directSmoke).map(({ operation }) => operation),
     ["tabs.borrow", "tabs.return", "assist.request-help"],
@@ -283,7 +322,7 @@ test("CLI accepts pnpm separator and supports suite and tag filters", async () =
     timeoutMs: 5_000,
   });
   assert.equal(coverageResult.exitCode, 0, coverageResult.stderr);
-  assert.equal(JSON.parse(coverageResult.stdout).length, 28);
+  assert.equal(JSON.parse(coverageResult.stdout).length, 29);
 
   const coreResult = await runProcess(
     process.execPath,
@@ -293,7 +332,7 @@ test("CLI accepts pnpm separator and supports suite and tag filters", async () =
     },
   );
   assert.equal(coreResult.exitCode, 0, coreResult.stderr);
-  assert.equal(JSON.parse(coreResult.stdout).length, 6);
+  assert.equal(JSON.parse(coreResult.stdout).length, 7);
 
   const formResult = await runProcess(process.execPath, [cli, "list", "--tag", "form", "--json"], {
     timeoutMs: 5_000,

@@ -15,6 +15,7 @@ import type {
   GetHtmlParams,
   HoverParams,
   HoverResult,
+  MockParams,
   NavigateBackParams,
   NavigateForwardParams,
   NavigateParams,
@@ -59,6 +60,7 @@ import {
   handlePress,
   handleSelect,
 } from "./interaction";
+import { handleMock } from "./mock";
 import {
   handleNavigate,
   handleNavigateBack,
@@ -432,6 +434,11 @@ export class ToolDispatcher {
           req.params as EmulateParams,
           this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
         );
+      case "tool.mock":
+        // Browser-profile scoped, so no CDP and no tab resolution: the rule
+        // table is read and written directly, and the interceptor in every
+        // page picks the change up from storage.
+        return handleMock(this.sessions, req.params as MockParams);
       case "tool.screenshot_full_page":
         if (!this.cdp) return { code: "unsupported", message: "Full-page screenshot requires CDP" };
         return handleFullPageScreenshot(

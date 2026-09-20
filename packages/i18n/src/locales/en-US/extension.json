@@ -114,7 +114,16 @@
     "remoteSavedDisabled": "Paired successfully. The connection switch is off; turn it on to connect.",
     "remoteFormatError": "The pairing link is incomplete or invalid. Copy the full link provided by the server.",
     "remotePermissionsInfo": "About remote connection permissions",
-    "remotePermissionsHint": "The server can control dedicated task windows. Confirmation for borrowing existing tabs follows the Automation settings below."
+    "remotePermissionsHint": "The server can control dedicated task windows. Confirmation for borrowing existing tabs follows the Automation settings below.",
+    "mock": {
+      "sectionTitle": "Mock rules",
+      "cardDesc": "See and edit the rules that rewrite request responses",
+      "empty": "No mock rules yet",
+      "openPage": "Open rules page",
+      "clearAll": "Clear all",
+      "count": "{{count}} rules",
+      "scopeHint": "Applies to every tab in this browser profile."
+    }
   },
   "controlOverlay": {
     "status": "Agent controlling",
@@ -290,5 +299,34 @@
       "resize": "Resize window",
       "emulate": "Change emulation settings"
     }
+  },
+  "mock": {
+    "title": "Mock rules",
+    "subtitle": "Rewrite request responses so frontend work can proceed without a backend.",
+    "loading": "Loading…",
+    "empty": "No rules yet. Add one here, or ask your agent to run bsk mock add.",
+    "addRule": "Add rule",
+    "editRule": "Edit rule",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "enabled": "Enabled",
+    "urlPattern": "URL pattern",
+    "urlPatternHint": "Matched against the full request URL. * matches any characters, ? matches one.",
+    "method": "Method",
+    "methodAny": "Any",
+    "status": "Status",
+    "headers": "Headers",
+    "headersHint": "One per line, as Name: value",
+    "body": "Body",
+    "delay": "Delay (ms)",
+    "note": "Note",
+    "import": "Import",
+    "export": "Export",
+    "invalidUrl": "A URL pattern is required",
+    "invalidStatus": "Status must be between 100 and 599",
+    "importFailed": "Import failed: {{message}}",
+    "deleteConfirm": "Delete this rule?"
   }
 }

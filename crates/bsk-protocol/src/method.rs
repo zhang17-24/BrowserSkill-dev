@@ -51,6 +51,8 @@ pub enum Method {
     ToolWindowResize,
     #[serde(rename = "tool.emulate")]
     ToolEmulate,
+    #[serde(rename = "tool.mock")]
+    ToolMock,
     #[serde(rename = "tool.tab_list")]
     ToolTabList,
     #[serde(rename = "tool.tab_create")]
@@ -228,6 +230,19 @@ impl Method {
             | Method::ToolSessionStart
             | Method::ToolSessionStop => MethodEffect::ControlPlane,
 
+            // Request-mocking rule CRUD — not gated, deliberately.
+            //
+            // `tool.mock` changes what pages receive, so the naive call is
+            // `BrowserMutation`. That is wrong here for two reasons. It
+            // dispatches no page input and triggers no page handler, so it
+            // cannot be the action a user meant to stop. And it is the only
+            // way to *remove* a rule: gating it would let a user interrupt
+            // strand a mock that silently rewrites their app's traffic,
+            // which is exactly the failure this classification prevents.
+            // `tool.screenshot_release` is ungated for the same
+            // cleanup-must-always-work reason.
+            Method::ToolMock => MethodEffect::ControlPlane,
+
             // System / control — not gated.
             Method::AuditRequest
             | Method::SystemHandshake
@@ -290,6 +305,22 @@ mod tests {
         let method: Method = serde_json::from_value(json!("tool.emulate")).unwrap();
         assert_eq!(method, Method::ToolEmulate);
         assert_eq!(serde_json::to_value(method).unwrap(), json!("tool.emulate"));
+    }
+
+    #[test]
+    fn mock_method_round_trips() {
+        let method: Method = serde_json::from_value(json!("tool.mock")).unwrap();
+        assert_eq!(method, Method::ToolMock);
+        assert_eq!(serde_json::to_value(method).unwrap(), json!("tool.mock"));
+    }
+
+    #[test]
+    fn mock_is_control_plane_and_ungated() {
+        // A user interrupt must never strand a rule that rewrites the page's
+        // traffic — clearing rules has to stay possible after a stop.
+        assert_eq!(Method::ToolMock.effect(), MethodEffect::ControlPlane);
+        assert!(!Method::ToolMock.requires_interrupt_gate());
+        assert!(!Method::ToolMock.is_mutating());
     }
 
     #[test]

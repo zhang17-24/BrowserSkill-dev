@@ -11,6 +11,7 @@ import { ConnectionStatusIndicator } from "./connection-status-indicator";
 import { POPUP_FEATURES, type PopupView } from "./features";
 import { InteractionSettings } from "./interaction-settings";
 import { LongScreenshot } from "./long-screenshot";
+import { MockRules } from "./mock-rules";
 import { SettingInfo } from "./setting-info";
 import { Switch } from "./switch";
 import { type PopupStatusState, useConnectionState } from "./use-connection-state";
@@ -127,7 +128,9 @@ export function App() {
           ? t("longScreenshot.title")
           : view === "audit"
             ? t("audit.title")
-            : t("popup.brandName");
+            : view === "mock"
+              ? t("popup.mock.sectionTitle")
+              : t("popup.brandName");
 
   return (
     <main
@@ -341,6 +344,7 @@ export function App() {
 
       {view === "long-screenshot" && <LongScreenshot />}
       {view === "audit" && <AuditPanel />}
+      {view === "mock" && <MockRules />}
 
       {view === "record" && (
         <section className="space-y-2.5" data-slot="popup-record-body">

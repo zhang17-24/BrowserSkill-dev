@@ -29,6 +29,7 @@ export const OPERATION_CATALOG = [
   { operation: "tabs.return", manualNote: "paired with borrowing a real user tab" },
   { operation: "assist.resize" },
   { operation: "assist.emulate" },
+  { operation: "assist.mock" },
   { operation: "assist.request-help", manualNote: "intentionally waits for human interaction" },
 ];
 
@@ -57,6 +58,7 @@ export const WORKFLOW_ACTION_OPERATIONS = {
   return: "tabs.return",
   resize: "assist.resize",
   emulate: "assist.emulate",
+  mock: "assist.mock",
   "request-help": "assist.request-help",
 };
 

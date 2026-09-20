@@ -12,11 +12,17 @@ function eventMatches(event, assertion) {
 export function verifyTask(task, { events = [], responseText = "", adapterEvidence = {} } = {}) {
   const site = task.siteAssertions.map((assertion) => {
     const actual = events.filter((event) => eventMatches(event, assertion)).length;
+    // `minCount` alone can only say "this happened". Some properties are
+    // defined by something *not* happening — "the origin server was never
+    // contacted" is the one that separates a mocked response from a redirect
+    // — so an optional `maxCount` bounds the count from above.
+    const min = assertion.minCount ?? 0;
+    const max = assertion.maxCount ?? Number.POSITIVE_INFINITY;
     return {
       kind: "site",
       label: assertion.label,
-      status: actual >= assertion.minCount ? "passed" : "failed",
-      expected: `at least ${assertion.minCount}`,
+      status: actual >= min && actual <= max ? "passed" : "failed",
+      expected: Number.isFinite(max) ? `between ${min} and ${max}` : `at least ${min}`,
       actual,
     };
   });
