@@ -344,7 +344,7 @@ async fn console_returns_buffered_entries() {
                     stack_trace: vec![],
                     truncated: false,
                 }],
-                next_since: 4,
+                next_since: Some(4),
                 truncated: false,
             })
             .unwrap(),
@@ -367,7 +367,7 @@ async fn console_returns_buffered_entries() {
     .await
     .expect("console ok");
     assert_eq!(result.tab_id, 7);
-    assert_eq!(result.next_since, 4);
+    assert_eq!(result.next_since, Some(4));
     assert_eq!(result.entries[0].text, "deprecated API");
     handle.shutdown().await;
 }
@@ -400,8 +400,15 @@ async fn network_returns_buffered_entries() {
                     error_text: None,
                     timestamp: None,
                     truncated: false,
+                    // A mocked entry, so this test covers the field end to end:
+                    // the extension produces it, and the Rust struct is what
+                    // decides whether it survives the CLI → daemon → extension →
+                    // CLI round trip. A field the protocol does not know is
+                    // dropped silently on the way back.
+                    mocked: true,
+                    rule_id: Some("m_7".into()),
                 }],
-                next_since: 4,
+                next_since: Some(4),
                 truncated: false,
             })
             .unwrap(),
@@ -423,8 +430,12 @@ async fn network_returns_buffered_entries() {
     .await
     .expect("network ok");
     assert_eq!(result.tab_id, 7);
-    assert_eq!(result.next_since, 4);
+    assert_eq!(result.next_since, Some(4));
     assert_eq!(result.entries[0].status, Some(404));
+    // The provenance of a mocked entry must survive the round trip, or
+    // `bsk network` shows a request that never happened as one that did.
+    assert!(result.entries[0].mocked);
+    assert_eq!(result.entries[0].rule_id.as_deref(), Some("m_7"));
     handle.shutdown().await;
 }
 

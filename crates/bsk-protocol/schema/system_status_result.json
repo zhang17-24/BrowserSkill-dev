@@ -21,6 +21,11 @@
         "$ref": "#/definitions/BrowserStatusEntry"
       }
     },
+    "daemon_build": {
+      "description": "Build revision of the daemon binary (short git sha).\n\n`daemon_version` is not a build identity: a release install and a local `cargo build` of the same `Cargo.toml` version both report the same number while speaking different protocols. Defaulted for peers that predate build stamping — an empty value means \"unknown\", not \"mismatch\".",
+      "default": "",
+      "type": "string"
+    },
     "daemon_version": {
       "description": "Semver of the daemon binary (`env!(\"CARGO_PKG_VERSION\")`).",
       "type": "string"

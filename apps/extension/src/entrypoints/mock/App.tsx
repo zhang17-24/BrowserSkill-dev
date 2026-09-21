@@ -1,6 +1,12 @@
 import { useTranslation } from "@browser-skill/i18n/react";
-import { Badge, Button, Input, Label, cn } from "@browser-skill/ui";
-import { RiAddLine, RiDeleteBinLine, RiDownloadLine, RiPencilLine, RiUploadLine } from "@remixicon/react";
+import { Badge, Button, cn, Input, Label } from "@browser-skill/ui";
+import {
+  RiAddLine,
+  RiDeleteBinLine,
+  RiDownloadLine,
+  RiPencilLine,
+  RiUploadLine,
+} from "@remixicon/react";
 import { type ChangeEvent, useRef, useState } from "react";
 import {
   draftFromRule,
@@ -325,9 +331,7 @@ function RuleEditor({
       className="space-y-3 rounded-xl border border-border bg-card/60 p-4"
       data-slot="mock-editor"
     >
-      <h2 className="text-sm font-medium">
-        {draft.id ? t("mock.editRule") : t("mock.addRule")}
-      </h2>
+      <h2 className="text-sm font-medium">{draft.id ? t("mock.editRule") : t("mock.addRule")}</h2>
 
       <div className="space-y-1.5">
         <Label htmlFor="mock-url" className="text-xs text-muted-foreground">
@@ -341,9 +345,7 @@ function RuleEditor({
           className="h-8 font-mono text-xs"
           data-slot="mock-editor-url"
         />
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          {t("mock.urlPatternHint")}
-        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground">{t("mock.urlPatternHint")}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -445,7 +447,13 @@ function RuleEditor({
         <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
           {t("mock.cancel")}
         </Button>
-        <Button type="button" size="sm" onClick={onSave} disabled={busy} data-slot="mock-editor-save">
+        <Button
+          type="button"
+          size="sm"
+          onClick={onSave}
+          disabled={busy}
+          data-slot="mock-editor-save"
+        >
           {t("mock.save")}
         </Button>
       </div>

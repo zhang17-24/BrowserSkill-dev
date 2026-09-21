@@ -3,7 +3,6 @@
   "title": "ConsoleResult",
   "type": "object",
   "required": [
-    "next_since",
     "tab_id"
   ],
   "properties": {
@@ -14,7 +13,11 @@
       }
     },
     "next_since": {
-      "type": "integer",
+      "description": "Cursor to pass back as `since`, absent when there is nothing to resume from.\n\nA bare `0` was ambiguous: `since` is exclusive and `0` means \"from the beginning\", so a caller that read `0` from an empty snapshot and passed it back got the whole buffer rather than the next slice.",
+      "type": [
+        "integer",
+        "null"
+      ],
       "format": "uint64",
       "minimum": 0.0
     },

@@ -163,6 +163,45 @@ test("prompt rendering is run-scoped, localized, and seed-aware", () => {
   assert.match(renderPrompt(task, { ...input, locale: "zh-CN" }), /seeded form/);
 });
 
+test("smoke wait-site-event rejects an assertion-shaped where", () => {
+  // A case's `assertions` match against the whole event (so `data.source`), while
+  // a smoke step matches against `event.data` (so `source`). The same syntax
+  // reaching a different object is silent when wrong: the step waits out its
+  // timeout and reports "the local fixture did not report …", which reads like a
+  // broken fixture rather than a bad path.
+  const manifest = (where) => ({
+    schemaVersion: 1,
+    id: "where-shape-probe",
+    suite: "core",
+    tags: ["probe"],
+    title: "where shape probe",
+    order: 90,
+    fixture: { startPath: "/probe" },
+    prompts: { en: "a", "zh-CN": "b" },
+    coverage: [],
+    assertions: { site: [], response: [], adapter: [] },
+    smoke: { steps: [{ action: "wait-site-event", type: "mock.probe", where }] },
+  });
+
+  const rejected = validateCaseManifest(manifest({ "data.source": "real" }));
+  assert.ok(
+    rejected.some((error) => error.includes("must be relative to event.data")),
+    `expected the where-shape error, got: ${rejected.join("; ")}`,
+  );
+
+  // The smoke-shaped key, and a `where` that names nothing, are both fine.
+  assert.ok(
+    !validateCaseManifest(manifest({ source: "real" })).some((error) =>
+      error.includes("must be relative to event.data"),
+    ),
+  );
+  assert.ok(
+    !validateCaseManifest(manifest(undefined)).some((error) =>
+      error.includes("must be relative to event.data"),
+    ),
+  );
+});
+
 test("mock case separates a replaced response from a redirect", () => {
   const task = getTask("mock-response-override", cases);
   const probe = (source) => ({ type: "mock.probe", data: { source } });

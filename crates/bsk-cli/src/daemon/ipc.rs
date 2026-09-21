@@ -94,6 +94,10 @@ impl DaemonStatus {
     pub fn snapshot(&self) -> StatusResult {
         StatusResult {
             daemon_version: self.daemon_version.to_string(),
+            // Answered from inside the daemon process, so this is the daemon's
+            // own build — which is exactly what the CLI needs to compare against
+            // its own.
+            daemon_build: crate::build_info::GIT_SHA.to_string(),
             protocol_version: self.protocol_version.to_string(),
             pid: std::process::id(),
             uptime_secs: self.started_at.elapsed().as_secs(),
@@ -136,6 +140,10 @@ impl DaemonStatus {
             .collect();
         StatusResult {
             daemon_version: self.daemon_version.to_string(),
+            // Answered from inside the daemon process, so this is the daemon's
+            // own build — which is exactly what the CLI needs to compare against
+            // its own.
+            daemon_build: crate::build_info::GIT_SHA.to_string(),
             protocol_version: self.protocol_version.to_string(),
             pid: std::process::id(),
             uptime_secs: self.started_at.elapsed().as_secs(),

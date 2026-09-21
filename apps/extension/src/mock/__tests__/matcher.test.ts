@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { MockRule } from "@/transport/types";
-import {
-  findMatchingRule,
-  globToRegExp,
-  matchesRule,
-  resetPatternCache,
-} from "../matcher";
+import { findMatchingRule, globToRegExp, matchesRule, resetPatternCache } from "../matcher";
 
 function rule(overrides: Partial<MockRule> = {}): MockRule {
   return {
@@ -136,7 +131,11 @@ describe("findMatchingRule", () => {
 
   it("lets the first match win so rule order on the page is the truth", () => {
     const broad = rule({ id: "broad", url_pattern: "https://api.example.com/*", body: "broad" });
-    const narrow = rule({ id: "narrow", url_pattern: "https://api.example.com/user/*", body: "narrow" });
+    const narrow = rule({
+      id: "narrow",
+      url_pattern: "https://api.example.com/user/*",
+      body: "narrow",
+    });
 
     expect(findMatchingRule([broad, narrow], "https://api.example.com/user/1", "GET")?.id).toBe(
       "broad",

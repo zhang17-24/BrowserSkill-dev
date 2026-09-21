@@ -70,8 +70,15 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByText("未连接")).toBeTruthy();
-    expect(screen.getByText("无法连接，请确认 daemon 已启动且端口一致。")).toBeTruthy();
-    expect(screen.queryByText("请先打开 BrowserSkill。")).toBeNull();
+    // Read both strings from the catalogue rather than repeating them: this test
+    // is about *which* message is shown, not its wording, and a hardcoded copy
+    // turns every copy edit into a failing test. The `stateDetail` namespace is
+    // asserted absent because the popup deliberately shows the reachability
+    // message instead of a per-state subtitle.
+    expect(screen.getByText(i18n.t("popup.daemonUnreachable", { ns: "extension" }))).toBeTruthy();
+    expect(
+      screen.queryByText(i18n.t("popup.stateDetail.disconnected", { ns: "extension" })),
+    ).toBeNull();
   });
 
   it("keeps the connection switch usable and shows protocol errors when disconnected", () => {
@@ -88,7 +95,10 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByText("未连接")).toBeTruthy();
-    expect(screen.queryByText("无法连接，请确认 daemon 已启动且端口一致。")).toBeNull();
+    // From the catalogue, not a literal: a hardcoded copy here made the
+    // assertion pass vacuously the moment the message was reworded, because the
+    // old text no longer exists to be found.
+    expect(screen.queryByText(i18n.t("popup.daemonUnreachable", { ns: "extension" }))).toBeNull();
     expect(screen.queryByText("端口不匹配")).toBeNull();
     expect(
       screen.getByRole("switch", { name: "BrowserSkill 连接" }).getAttribute("aria-checked"),
@@ -229,7 +239,7 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByText("连接已关闭")).toBeTruthy();
-    expect(screen.queryByText("无法连接，请确认 daemon 已启动且端口一致。")).toBeNull();
+    expect(screen.queryByText(i18n.t("popup.daemonUnreachable", { ns: "extension" }))).toBeNull();
     expect(
       screen.getByRole("switch", { name: "BrowserSkill 连接" }).getAttribute("aria-checked"),
     ).toBe("false");

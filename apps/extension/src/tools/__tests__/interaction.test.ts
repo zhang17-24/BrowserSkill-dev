@@ -499,6 +499,111 @@ describe("handleClick", () => {
     expect(res).toMatchObject({ code: "not_found", data: { reason: "selector_not_found" } });
   });
 
+  it("retries the selector lookup when a re-render invalidates the document root", async () => {
+    // `DOM.getDocument` and `DOM.querySelector` are not atomic: a commit landing
+    // between them makes the root node stale, and CDP reports that as a protocol
+    // error rather than as "no match". Nothing has been dispatched yet, so
+    // re-resolving is safe in a way it would not be after a click.
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    let queries = 0;
+    const fake = makeFakeCdp({
+      "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
+      "DOM.querySelector": () => {
+        queries += 1;
+        if (queries === 1) throw new Error("Could not find node with given id");
+        return { nodeId: 99 };
+      },
+      "DOM.describeNode": () => ({ node: { backendNodeId: 7777 } }),
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.getContentQuads": () => ({ quads: [[0, 0, 50, 0, 50, 50, 0, 50]] }),
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", selector: ".btn-go" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(queries).toBe(2);
+    expect(res.used_selector).toBe(".btn-go");
+  });
+
+  it("does not retry a selector that honestly matches nothing", async () => {
+    // `nodeId === 0` is an answer, not a transport failure. Re-asking cannot
+    // change it, and retrying would turn every typo into repeated round trips.
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    let queries = 0;
+    const fake = makeFakeCdp({
+      "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
+      "DOM.querySelector": () => {
+        queries += 1;
+        return { nodeId: 0 };
+      },
+    });
+
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", selector: ".missing" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    expect(res).toMatchObject({ code: "not_found", data: { reason: "selector_not_found" } });
+    expect(queries).toBe(1);
+  });
+
+  it("names the selector and the failing step when resolution gives up", async () => {
+    // The previous error was the bare CDP string, with no mention of which
+    // selector failed or where — unactionable for a caller that issued several
+    // lookups in one action.
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({
+      "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
+      "DOM.querySelector": () => {
+        throw new Error("Node with given id does not belong to the document");
+      },
+    });
+
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", selector: "#stale" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if (!("code" in res)) throw new Error("expected an error");
+    expect(res.code).toBe("cdp_failed");
+    expect(res.message).toContain("#stale");
+    expect(res.message).toContain("Node with given id does not belong to the document");
+  });
+
+  it("classifies an extension-access failure instead of passing the raw text through", async () => {
+    // `cdpError` tags this one reason so the CLI can name the cause. The bare
+    // object literal this path used to return skipped that classification.
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({
+      "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
+      "DOM.querySelector": () => {
+        throw new Error("Cannot access a chrome-extension:// URL of different extension");
+      },
+    });
+
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", selector: ".x" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    expect(res).toMatchObject({
+      code: "cdp_failed",
+      data: { reason: "cdp_extension_access_denied" },
+    });
+  });
+
   it("respects the AbortSignal", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     const ctx = await sm.start("aa11");

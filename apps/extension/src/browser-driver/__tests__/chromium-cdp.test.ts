@@ -636,6 +636,94 @@ describe("ChromiumCdp", () => {
     expect(cdp.consoleEntriesSince(24, 0, 50, 1000, false).entries).toHaveLength(0);
   });
 
+  it("omits the cursor instead of reporting 0, which would re-read the buffer", async () => {
+    // `since` is exclusive and `0` means "from the beginning", so a tab that had
+    // captured nothing used to answer `next_since: 0` — and a caller that echoed
+    // that back got the whole buffer instead of the next slice. That is a
+    // silently wrong answer, not an error.
+    const { api, onEvent } = fakeApi();
+    const cdp = new ChromiumCdp(api);
+    await cdp.ensureAttached(41);
+
+    expect(cdp.consoleEntriesSince(41, undefined, 50, 1000, false)).toMatchObject({
+      entries: [],
+      next_since: undefined,
+    });
+    // The network buffer is a separate map with its own sequence counter.
+    expect(cdp.networkEntriesSince(41, undefined, 50, 1000).next_since).toBeUndefined();
+
+    // Once something has been captured a real cursor exists, so it is reported —
+    // including when the caller is already up to date and gets no new entries.
+    onEvent.fire({ tabId: 41 }, "Runtime.consoleAPICalled", {
+      type: "log",
+      args: [{ value: "first" }],
+    });
+    expect(cdp.consoleEntriesSince(41, undefined, 50, 1000, false)).toMatchObject({
+      next_since: 1,
+    });
+    expect(cdp.consoleEntriesSince(41, 1, 50, 1000, false)).toMatchObject({
+      entries: [],
+      next_since: 1,
+    });
+  });
+
+  it("records a locally answered request as mocked, with the rule that answered", async () => {
+    // The extension is the only witness that this request never reached the
+    // network, and `projectNetworkEntry` rebuilds an entry field by field — so a
+    // mark that reaches the buffer but not the result is indistinguishable from
+    // a real response.
+    const { api } = fakeApi();
+    const cdp = new ChromiumCdp(api);
+    await cdp.ensureAttached(51);
+
+    expect(
+      cdp.recordMockedRequest(51, {
+        url: "https://api.test/user/1",
+        method: "GET",
+        status: 200,
+        ruleId: "m_1",
+      }),
+    ).toBe(true);
+
+    const result = cdp.networkEntriesSince(51, undefined, 50, 1000);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({
+      kind: "response",
+      url: "https://api.test/user/1",
+      method: "GET",
+      status: 200,
+      mocked: true,
+      rule_id: "m_1",
+    });
+    // Shares the sequence counter with captured entries, so a cursor stays
+    // monotonic and mocked traffic interleaves with real traffic in the order it
+    // actually happened.
+    expect(result.entries[0]?.sequence).toBe(1);
+  });
+
+  it("records a mock whose rule has no id", async () => {
+    const { api } = fakeApi();
+    const cdp = new ChromiumCdp(api);
+    await cdp.ensureAttached(52);
+    cdp.recordMockedRequest(52, { url: "https://api.test/x", method: "POST", status: 503 });
+
+    const entry = cdp.networkEntriesSince(52, undefined, 50, 1000).entries[0];
+    expect(entry?.mocked).toBe(true);
+    expect(entry?.rule_id).toBeUndefined();
+  });
+
+  it("declines to record a mock for a tab with no capture attached", async () => {
+    // `bsk network` only reads tabs the session controls, so a mark for a tab
+    // nobody inspects would grow a buffer nothing ever reads.
+    const { api } = fakeApi();
+    const cdp = new ChromiumCdp(api);
+
+    expect(
+      cdp.recordMockedRequest(53, { url: "https://api.test/x", method: "GET", status: 200 }),
+    ).toBe(false);
+    expect(cdp.networkEntriesSince(53, undefined, 50, 1000).entries).toHaveLength(0);
+  });
+
   it("isolates network request metadata by tab and consumes it", async () => {
     const { api, onEvent } = fakeApi();
     const cdp = new ChromiumCdp(api);

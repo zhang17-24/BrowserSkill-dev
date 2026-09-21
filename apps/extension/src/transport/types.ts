@@ -221,7 +221,13 @@ export interface ConsoleParams {
 export interface ConsoleResult {
   tab_id: number;
   entries: ConsoleEntry[];
-  next_since: number;
+  /**
+   * Cursor to pass back as `since`, absent when there is nothing to resume from
+   * (nothing has been captured for this tab). Never `0` — `since: 0` means
+   * "from the beginning", so emitting it for an empty snapshot handed callers a
+   * full re-read instead of the next slice.
+   */
+  next_since?: number;
   truncated: boolean;
 }
 
@@ -239,6 +245,21 @@ export interface NetworkEntry {
   error_text?: string;
   timestamp?: number;
   truncated: boolean;
+  /**
+   * True when the extension answered this request locally.
+   *
+   * A mocked request never reaches the network stack, so it appears in no other
+   * record — and a rule whose body imitates the real response is
+   * indistinguishable from a real one by reading the payload. This mark is what
+   * makes "did this request go out?" answerable from the log at all.
+   *
+   * Mirrored in `crates/bsk-protocol/src/tools/network.rs`; a field added only
+   * here is dropped on the wire, because the Rust struct does not deny unknown
+   * fields.
+   */
+  mocked?: boolean;
+  /** Rule that answered, when `mocked`. */
+  rule_id?: string;
 }
 
 export interface NetworkParams {
@@ -252,7 +273,13 @@ export interface NetworkParams {
 export interface NetworkResult {
   tab_id: number;
   entries: NetworkEntry[];
-  next_since: number;
+  /**
+   * Cursor to pass back as `since`, absent when there is nothing to resume from
+   * (nothing has been captured for this tab). Never `0` — `since: 0` means
+   * "from the beginning", so emitting it for an empty snapshot handed callers a
+   * full re-read instead of the next slice.
+   */
+  next_since?: number;
   truncated: boolean;
 }
 

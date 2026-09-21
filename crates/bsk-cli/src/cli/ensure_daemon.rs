@@ -32,7 +32,17 @@ pub(crate) const AUTO_START_DISABLED_HINT: &str = "automatic daemon startup is d
 
 /// Return verified discovery info, starting a daemon only when its discovery
 /// file or IPC listener is absent and auto-start is enabled.
+///
+/// Every failure here means "there is no usable daemon", so the whole body is
+/// tagged as a link failure — that is the one situation where the CLI should
+/// tell the caller to start one. The tagging lives here rather than being
+/// inferred from the error variant, because a missing `--body-file` is also a
+/// local failure and used to get the same hint.
 pub fn ensure_daemon() -> Result<DaemonInfo> {
+    ensure_daemon_ready().map_err(crate::ipc_client::map_link_error)
+}
+
+fn ensure_daemon_ready() -> Result<DaemonInfo> {
     if let Probe::Ready(daemon) = probe::probe(PROBE_TIMEOUT)? {
         return Ok(daemon.info);
     }

@@ -7,7 +7,16 @@ import type {
   ResponseFrame,
 } from "./types";
 
-export const PROTOCOL_VERSION = "1.3";
+/**
+ * Wire protocol revision. Must stay in sync with the daemon's
+ * `PROTOCOL_VERSION` (`crates/bsk-cli/src/daemon/state.rs`).
+ *
+ * Bump when the meaning of a frame or the set of methods changes — adding a
+ * method counts, because a peer built before it cannot deserialise the
+ * request. Without a bump the two sides look identical and the mismatch
+ * surfaces only as an unparseable reply.
+ */
+export const PROTOCOL_VERSION = "1.4";
 /**
  * Extension semver, injected at build time from `package.json` via
  * Vite's `define` (see `wxt.config.ts` and `vitest.config.ts`).

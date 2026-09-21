@@ -36,6 +36,11 @@ use crate::cli::error::{CliError, Format};
 /// It is a local read of daemon state, not a browser round-trip.
 const SESSION_LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Budget for the best-effort rule count `session stop` issues before it
+/// stops anything. Deliberately short: it is a courtesy warning, not part of
+/// stopping the session.
+const MOCK_COUNT_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Args)]
 pub struct MockCmd {
     /// Active session id. Omit when exactly one session is active.
@@ -92,7 +97,12 @@ pub struct AddArgs {
     #[arg(long)]
     pub method: Option<String>,
 
-    /// HTTP status the page receives.
+    /// HTTP status the page receives (200..=599).
+    ///
+    /// The floor is 200 rather than 100 because the extension builds the
+    /// response with the `Response` constructor, which rejects anything below
+    /// 200 — a 1xx rule would save and then throw inside the page. A 1xx is
+    /// informational and never a response a page can be handed anyway.
     #[arg(long, default_value_t = 200)]
     pub status: u16,
 
@@ -326,6 +336,26 @@ pub fn build_simple_params(session: &str, action: MockAction) -> MockParams {
 #[derive(Debug, Deserialize)]
 struct SessionListReply {
     sessions: Vec<SessionStatusEntry>,
+}
+
+/// How many rules are in effect, or `None` when the lookup did not succeed.
+///
+/// Used by `session stop` to warn about rules that outlive the session.
+/// Returning `Option` rather than `Result` is the point: `session stop` runs
+/// in `finally`-style cleanup paths (the browser evaluation harness depends on
+/// it), so a mock-table read must never be able to make stopping a session
+/// fail. The short timeout serves the same goal.
+pub(crate) fn count_rules(sock: &Path, session_id: &str) -> Option<usize> {
+    let params = build_simple_params(session_id, MockAction::List);
+    let reply: MockResult = crate::cli::business_rpc::call::<MockParams, MockResult>(
+        sock.to_path_buf(),
+        "mock-count",
+        Method::ToolMock,
+        Some(params),
+        MOCK_COUNT_TIMEOUT,
+    )
+    .ok()?;
+    Some(reply.rules.len())
 }
 
 fn invalid_params(message: &str) -> CliError {

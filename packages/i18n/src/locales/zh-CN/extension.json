@@ -35,7 +35,7 @@
     "daemonPortSaving": "保存中…",
     "daemonPortReadFailed": "无法读取端口，请重新打开弹窗重试。",
     "daemonPortWriteFailed": "端口保存失败，请重试。",
-    "daemonUnreachable": "无法连接，请确认 daemon 已启动且端口一致。",
+    "daemonUnreachable": "本地服务未在运行。执行任意 bsk 命令会自动启动它（空闲 30 分钟后会自动退出）；若刚启动过，请确认端口一致。",
     "versionSkewWarning": "扩展协议 v{{extensionProtocol}}，CLI 协议 v{{cliProtocol}}。协议版本不同，请及时升级。",
     "upgradeAvailable": "可升级",
     "launcher": {
@@ -121,6 +121,7 @@
       "empty": "还没有 Mock 规则",
       "openPage": "打开规则页",
       "clearAll": "清空全部",
+      "clearConfirm": "确认清空全部 {{count}} 条规则？此操作无法恢复。",
       "count": "{{count}} 条规则",
       "scopeHint": "对本浏览器配置下的所有标签页生效。"
     }
@@ -325,7 +326,7 @@
     "import": "导入",
     "export": "导出",
     "invalidUrl": "必须填写 URL 匹配规则",
-    "invalidStatus": "状态码必须在 100 到 599 之间",
+    "invalidStatus": "状态码必须在 200 到 599 之间",
     "importFailed": "导入失败：{{message}}",
     "deleteConfirm": "确认删除这条规则？"
   }

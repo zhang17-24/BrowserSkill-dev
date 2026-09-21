@@ -79,7 +79,25 @@ function validateWorkflowStep(errors, step, path) {
   }
   if (step.action === "press") checkString(errors, step.key, `${path}.key`);
   if (step.action === "wait") checkString(errors, step.duration, `${path}.duration`);
-  if (step.action === "wait-site-event") checkString(errors, step.type, `${path}.type`);
+  if (step.action === "wait-site-event") {
+    checkString(errors, step.type, `${path}.type`);
+    // The same `where` syntax means different things in the two places it
+    // appears: a case's `assertions` match against the whole event, so a key is
+    // written `data.source`; a smoke step matches against `event.data`, so the
+    // same key is written `source`. Writing the assertion form here does not
+    // fail — the step waits out its timeout and reports "the local fixture did
+    // not report …", which reads like a broken fixture instead of a bad path.
+    // A `data.`-prefixed key is always that mistake, so reject it here, where
+    // `validate` sees every case without running any of them.
+    for (const key of Object.keys(step.where ?? {})) {
+      if (key !== "data" && !key.startsWith("data.")) continue;
+      errors.push(
+        `${path}.where key ${JSON.stringify(key)} must be relative to event.data, not to the whole ` +
+          `event: use ${JSON.stringify(key.replace(/^data\./, ""))} in a smoke step and keep ` +
+          `${JSON.stringify(key)} for assertions`,
+      );
+    }
+  }
   if (["tab-select", "tab-close", "borrow", "return"].includes(step.action)) {
     checkString(errors, step.tabId, `${path}.tabId`);
   }

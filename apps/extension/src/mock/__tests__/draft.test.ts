@@ -96,14 +96,18 @@ describe("ruleFromDraft validation", () => {
   });
 
   it("rejects an out-of-range status", () => {
-    const converted = ruleFromDraft({
-      ...emptyDraft(),
-      url_pattern: "https://a.test/x",
-      status: "999",
-    });
-    expect("error" in converted).toBe(true);
-    if (!("error" in converted)) return;
-    expect(converted.error).toContain("100 and 599");
+    for (const status of ["999", "100", "199"]) {
+      const converted = ruleFromDraft({
+        ...emptyDraft(),
+        url_pattern: "https://a.test/x",
+        status,
+      });
+      expect("error" in converted, `status ${status} should be rejected`).toBe(true);
+      if (!("error" in converted)) return;
+      // The floor is 200 because `Response` refuses anything lower, so 1xx is out
+      // of range rather than merely unusual.
+      expect(converted.error).toContain("200 and 599");
+    }
   });
 
   it("rejects a negative delay", () => {
@@ -173,9 +177,12 @@ describe("parseHeaderLines", () => {
 
 describe("formatHeaders", () => {
   it("renders the textarea form", () => {
-    expect(formatHeaders([{ name: "a", value: "1" }, { name: "b", value: "2" }])).toBe(
-      "a: 1\nb: 2",
-    );
+    expect(
+      formatHeaders([
+        { name: "a", value: "1" },
+        { name: "b", value: "2" },
+      ]),
+    ).toBe("a: 1\nb: 2");
   });
 
   it("renders nothing for no headers", () => {

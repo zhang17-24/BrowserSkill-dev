@@ -122,3 +122,94 @@ export function subscribeMockRulesRequests(
   target.addEventListener("message", listener);
   return () => target.removeEventListener("message", listener);
 }
+
+/**
+ * MAIN → ISOLATED: a rule just answered a request locally.
+ *
+ * The fact worth recording — "this request never went to the network" — exists
+ * only in the interceptor, in the MAIN world, which cannot reach
+ * `chrome.runtime`. So it crosses the same boundary the rule set does, in the
+ * opposite direction.
+ */
+export const MOCK_HIT_CHANNEL = "bsk:mock-hit";
+
+/** `kind` the ISOLATED side forwards a hit under, for the background. */
+export const MOCK_HIT_MESSAGE_KIND = "bsk_mock_hit";
+
+/** What the interceptor knows about a request it answered. */
+export interface MockHit {
+  url: string;
+  method: string;
+  status: number;
+  ruleId?: string;
+}
+
+export interface MockHitMessage extends MockHit {
+  channel: typeof MOCK_HIT_CHANNEL;
+}
+
+export interface MockHitRuntimeMessage extends MockHit {
+  kind: typeof MOCK_HIT_MESSAGE_KIND;
+}
+
+function isMockHitFields(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.url === "string" &&
+    typeof value.method === "string" &&
+    typeof value.status === "number" &&
+    Number.isFinite(value.status) &&
+    (value.ruleId === undefined || typeof value.ruleId === "string")
+  );
+}
+
+export function isMockHitMessage(value: unknown): value is MockHitMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return candidate.channel === MOCK_HIT_CHANNEL && isMockHitFields(candidate);
+}
+
+export function isMockHitRuntimeMessage(value: unknown): value is MockHitRuntimeMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  // Shape-checked on the receiving side as well, not just on send: the
+  // background's listener is reachable from every content script in every tab,
+  // so a malformed message must not be able to write into a tab's buffer.
+  return candidate.kind === MOCK_HIT_MESSAGE_KIND && isMockHitFields(candidate);
+}
+
+/** MAIN side: report a locally answered request. */
+export function publishMockHit(hit: MockHit, target: Window = window): void {
+  const message: MockHitMessage = {
+    channel: MOCK_HIT_CHANNEL,
+    url: hit.url,
+    method: hit.method,
+    status: hit.status,
+    ...(hit.ruleId !== undefined ? { ruleId: hit.ruleId } : {}),
+  };
+  target.postMessage(message, targetOrigin(target));
+}
+
+/** ISOLATED side: listen for hits from the page. */
+export function subscribeMockHits(
+  handler: (hit: MockHitMessage) => void,
+  target: Window = window,
+): () => void {
+  const listener = (event: MessageEvent): void => {
+    if (!isTrustedSender(event, target)) return;
+    if (!isMockHitMessage(event.data)) return;
+    handler(event.data);
+  };
+  target.addEventListener("message", listener);
+  return () => target.removeEventListener("message", listener);
+}
+
+/** ISOLATED side: the runtime message the background expects. */
+export function toMockHitRuntimeMessage(hit: MockHitMessage): MockHitRuntimeMessage {
+  return {
+    kind: MOCK_HIT_MESSAGE_KIND,
+    url: hit.url,
+    method: hit.method,
+    status: hit.status,
+    ...(hit.ruleId !== undefined ? { ruleId: hit.ruleId } : {}),
+  };
+}

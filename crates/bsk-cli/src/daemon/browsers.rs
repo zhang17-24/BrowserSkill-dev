@@ -557,16 +557,17 @@ mod tests {
         let reg = BrowserRegistry::new();
         reg.insert(fake_client("a", ""));
         reg.insert(fake_client("b", ""));
+        // Half the wait it was given. The property under test is that it does not
+        // consume the budget; a bound near zero would measure the scheduler
+        // instead of the code, and every other test binary runs in parallel.
+        let budget = Duration::from_secs(1);
         let started = Instant::now();
-        match reg
-            .select_with_connect_wait(None, Duration::from_secs(1))
-            .await
-        {
+        match reg.select_with_connect_wait(None, budget).await {
             Err(SelectError::MultipleBrowsersOnline) => {}
             other => panic!("expected MultipleBrowsersOnline, got {other:?}"),
         }
         assert!(
-            started.elapsed() < Duration::from_millis(50),
+            started.elapsed() < budget / 2,
             "ambiguous selection should fail immediately"
         );
     }
@@ -591,16 +592,14 @@ mod tests {
     async fn select_with_connect_wait_does_not_wait_on_not_found_when_browsers_online() {
         let reg = BrowserRegistry::new();
         reg.insert(fake_client("alpha", "Personal"));
+        let budget = Duration::from_secs(1);
         let started = Instant::now();
-        match reg
-            .select_with_connect_wait(Some("missing"), Duration::from_secs(1))
-            .await
-        {
+        match reg.select_with_connect_wait(Some("missing"), budget).await {
             Err(SelectError::NotFound) => {}
             other => panic!("expected NotFound, got {other:?}"),
         }
         assert!(
-            started.elapsed() < Duration::from_millis(50),
+            started.elapsed() < budget / 2,
             "unknown selector with browsers online should fail immediately"
         );
     }
@@ -669,10 +668,11 @@ mod tests {
     async fn wait_for_any_connected_skips_when_already_populated() {
         let reg = BrowserRegistry::new();
         reg.insert(fake_client("a", ""));
+        let budget = Duration::from_secs(1);
         let started = Instant::now();
-        reg.wait_for_any_connected(Duration::from_secs(1)).await;
+        reg.wait_for_any_connected(budget).await;
         assert!(
-            started.elapsed() < Duration::from_millis(50),
+            started.elapsed() < budget / 2,
             "should return immediately when browsers already connected"
         );
     }

@@ -37,7 +37,7 @@ import type {
 } from "@/transport/types";
 import { attachDialogs, markDialogCursor } from "./dialogs";
 import { backendNodeToObject } from "./element-geometry";
-import { rpcError } from "./errors";
+import { cdpError, rpcError } from "./errors";
 import { resolveNodeGeometry, scrollElementAndFramesIntoView } from "./frame-geometry";
 import {
   type CdpRunner,
@@ -51,6 +51,18 @@ import {
   resolveTargetTab,
 } from "./shared";
 import { resolveSnapshotRef } from "./snapshot-ref";
+
+/**
+ * Attempts at resolving `{selector}` before giving up, and the backoff base.
+ *
+ * A page that re-renders while `DOM.getDocument` and `DOM.querySelector` are in
+ * flight makes the root node stale, so the query fails with a raw CDP protocol
+ * error that says nothing about the selector. One retry covers the common case
+ * (a React/Vue commit landing between the two calls); three keeps a genuinely
+ * broken document from stalling.
+ */
+const SELECTOR_RESOLVE_ATTEMPTS = 3;
+const SELECTOR_RESOLVE_BACKOFF_MS = 40;
 
 export interface InteractionDeps {
   cdp: CdpRunner;
@@ -189,49 +201,69 @@ export async function resolveBackendNode(
     };
   }
   // selector path
-  try {
-    // Selector lookup itself attaches CDP, even when no element is found.
-    cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
-    const doc = await cdp.send<{ root?: { nodeId?: number } }>(target.tabId, "DOM.getDocument", {
-      depth: 0,
-    });
-    const rootNodeId = doc.root?.nodeId;
-    if (typeof rootNodeId !== "number") {
-      return {
-        code: "cdp_failed",
-        message: "DOM.getDocument returned no root nodeId",
-      };
+  //
+  // `DOM.getDocument` hands back a `nodeId` that `DOM.querySelector` then
+  // consumes, and the two are not atomic: a re-render between them invalidates
+  // the root node, and CDP reports that as a protocol error rather than as "no
+  // match". So the pair is retried together. Re-resolving is safe here in a way
+  // it is not after a dispatch — nothing has been sent to the page yet, so a
+  // retry cannot double-apply anything.
+  //
+  // A selector that genuinely matches nothing is *not* retried: `nodeId === 0`
+  // is an answer, not a failure, and re-asking cannot change it.
+  cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+  let lastFailure = "selector resolution made no attempt";
+  for (let attempt = 1; attempt <= SELECTOR_RESOLVE_ATTEMPTS; attempt += 1) {
+    try {
+      const doc = await cdp.send<{ root?: { nodeId?: number } }>(target.tabId, "DOM.getDocument", {
+        depth: 0,
+      });
+      const rootNodeId = doc.root?.nodeId;
+      if (typeof rootNodeId !== "number") {
+        lastFailure = "DOM.getDocument returned no root nodeId";
+      } else {
+        const found = await cdp.send<{ nodeId?: number }>(target.tabId, "DOM.querySelector", {
+          nodeId: rootNodeId,
+          selector: params.selector,
+        });
+        if (typeof found.nodeId === "number" && found.nodeId !== 0) {
+          const described = await cdp.send<{ node?: { backendNodeId?: number } }>(
+            target.tabId,
+            "DOM.describeNode",
+            { nodeId: found.nodeId },
+          );
+          const backendNodeId = described.node?.backendNodeId;
+          if (typeof backendNodeId === "number") {
+            return {
+              backendNodeId,
+              cdpTarget: { tabId: target.tabId },
+              usedSelector: params.selector,
+            };
+          }
+          lastFailure = "DOM.describeNode returned no backendNodeId";
+        } else {
+          return rpcError(
+            "not_found",
+            "selector_not_found",
+            `selector ${params.selector} did not match any element`,
+          );
+        }
+      }
+    } catch (err) {
+      lastFailure = err instanceof Error ? err.message : String(err);
     }
-    const found = await cdp.send<{ nodeId?: number }>(target.tabId, "DOM.querySelector", {
-      nodeId: rootNodeId,
-      selector: params.selector,
-    });
-    if (typeof found.nodeId !== "number" || found.nodeId === 0) {
-      return rpcError(
-        "not_found",
-        "selector_not_found",
-        `selector ${params.selector} did not match any element`,
-      );
+    if (attempt < SELECTOR_RESOLVE_ATTEMPTS) {
+      // The file's own `wait`, for consistency with every other delay here. No
+      // signal is threaded into this function, so the backoff is not
+      // cancellable — three attempts bound it at ~120 ms, which is short enough
+      // not to matter.
+      await wait(SELECTOR_RESOLVE_BACKOFF_MS * attempt);
     }
-    const described = await cdp.send<{ node?: { backendNodeId?: number } }>(
-      target.tabId,
-      "DOM.describeNode",
-      { nodeId: found.nodeId },
-    );
-    const backendNodeId = described.node?.backendNodeId;
-    if (typeof backendNodeId !== "number") {
-      return {
-        code: "cdp_failed",
-        message: "DOM.describeNode returned no backendNodeId",
-      };
-    }
-    return { backendNodeId, cdpTarget: { tabId: target.tabId }, usedSelector: params.selector };
-  } catch (err) {
-    return {
-      code: "cdp_failed",
-      message: err instanceof Error ? err.message : String(err),
-    };
   }
+  // `cdpError` rather than a bare literal: it classifies the one CDP failure
+  // callers must not retry (`cdp_extension_access_denied`), which this path
+  // used to bypass.
+  return cdpError(new Error(`selector ${params.selector} could not be resolved: ${lastFailure}`));
 }
 
 // Check the target's own root, then its hosts: closed shadow roots are not

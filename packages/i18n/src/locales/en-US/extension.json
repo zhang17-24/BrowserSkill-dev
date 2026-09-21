@@ -35,7 +35,7 @@
     "daemonPortSaving": "Saving…",
     "daemonPortReadFailed": "Could not load the port. Reopen this popup to retry.",
     "daemonPortWriteFailed": "Could not save the port. Please try again.",
-    "daemonUnreachable": "Can't connect. Check the daemon is running and the port matches.",
+    "daemonUnreachable": "The local service is not running. Any bsk command starts it, and it exits after 30 idle minutes; if you just started it, check the port matches.",
     "versionSkewWarning": "Extension protocol v{{extensionProtocol}}, CLI protocol v{{cliProtocol}}. Protocol versions differ — please upgrade.",
     "upgradeAvailable": "Upgradable",
     "launcher": {
@@ -121,6 +121,7 @@
       "empty": "No mock rules yet",
       "openPage": "Open rules page",
       "clearAll": "Clear all",
+      "clearConfirm": "Clear all {{count}} rules? This cannot be undone.",
       "count": "{{count}} rules",
       "scopeHint": "Applies to every tab in this browser profile."
     }
@@ -325,7 +326,7 @@
     "import": "Import",
     "export": "Export",
     "invalidUrl": "A URL pattern is required",
-    "invalidStatus": "Status must be between 100 and 599",
+    "invalidStatus": "Status must be between 200 and 599",
     "importFailed": "Import failed: {{message}}",
     "deleteConfirm": "Delete this rule?"
   }

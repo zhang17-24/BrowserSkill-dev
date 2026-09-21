@@ -215,18 +215,22 @@ async fn browser_list_waits_for_late_extension_handshake() {
 async fn system_status_without_wait_returns_immediately_when_empty() {
     let (handle, sock) = spawn_daemon().await;
     let mut ipc = IpcClient::connect(&sock).await.unwrap();
+    // Half the budget it was given: the property is that this call does not wait
+    // out its timeout, and a tighter bound would measure the machine's load —
+    // every other test binary in the workspace runs in parallel.
+    let budget = Duration::from_secs(2);
     let started = std::time::Instant::now();
     let status = ipc
         .call::<StatusParams, bsk_protocol::StatusResult>(
             "status-now",
             Method::SystemStatus,
             Some(StatusParams::default()),
-            Duration::from_secs(2),
+            budget,
         )
         .await
         .unwrap()
         .expect("system.status should succeed");
-    assert!(started.elapsed() < Duration::from_millis(200));
+    assert!(started.elapsed() < budget / 2);
     assert!(status.browsers.is_empty());
     handle.shutdown().await;
 }

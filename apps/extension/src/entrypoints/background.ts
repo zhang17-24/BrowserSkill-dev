@@ -28,6 +28,7 @@ import { POPUP_PORT_NAME, type PopupInbound, type PopupOutbound } from "@/lib/po
 import { recordFrameCoordinator } from "@/lib/recording/frame-coordinator";
 import { attachSessionsLiveFlag } from "@/lib/sessions-live-flag";
 import { attachLongScreenshot } from "@/long-screenshot/background";
+import { isMockHitRuntimeMessage } from "@/mock/bridge";
 import { createDisconnectCleanup } from "@/session-manager/disconnect-cleanup";
 import { attachSessionEventHandler } from "@/session-manager/event-handler";
 import { isAgentControlledTab, SessionManager } from "@/session-manager/manager";
@@ -428,6 +429,25 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((rawMsg, sender, sendResponse) => {
     const msg = rawMsg as OverlayMessage | undefined;
     if (!msg || typeof msg !== "object" || !("kind" in msg)) return false;
+
+    // A page reported that a mock rule answered one of its requests. Recorded
+    // here because this is where the network buffer lives; `sender.tab` is the
+    // only trustworthy source for *which* tab, so the message body carries no
+    // tab id of its own.
+    // Guard the raw message, not `msg`: `msg` is already asserted as
+    // `OverlayMessage`, and intersecting a second `kind` literal union narrows it
+    // to `never`.
+    if (isMockHitRuntimeMessage(rawMsg)) {
+      if (sender.id === chrome.runtime.id && typeof sender.tab?.id === "number") {
+        cdp.recordMockedRequest(sender.tab.id, {
+          url: rawMsg.url,
+          method: rawMsg.method,
+          status: rawMsg.status,
+          ...(rawMsg.ruleId !== undefined ? { ruleId: rawMsg.ruleId } : {}),
+        });
+      }
+      return false;
+    }
 
     if (msg.kind === OVERLAY_MSG_WHO_AM_I) {
       const windowId = sender.tab?.windowId;

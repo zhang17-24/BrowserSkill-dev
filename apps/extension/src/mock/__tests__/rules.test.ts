@@ -70,13 +70,7 @@ describe("normaliseRule", () => {
   it("drops headers that are not name/value strings", () => {
     const normalised = normaliseRule({
       url_pattern: "/x",
-      headers: [
-        { name: "a", value: "1" },
-        { name: "b" },
-        "nope",
-        null,
-        { name: 1, value: 2 },
-      ],
+      headers: [{ name: "a", value: "1" }, { name: "b" }, "nope", null, { name: 1, value: 2 }],
     });
     expect(normalised?.headers).toEqual([{ name: "a", value: "1" }]);
   });
@@ -132,19 +126,19 @@ describe("validateRule", () => {
   });
 
   it("rejects an out-of-range status", () => {
-    for (const status of [0, 99, 600]) {
+    // 1xx is rejected along with everything below 200: `Response` cannot
+    // represent it, so accepting it would save a rule that throws in the page.
+    for (const status of [0, 99, 100, 101, 199, 600, 999]) {
       expect(validateRule(rule({ status }))).toContain("status");
     }
-    for (const status of [100, 200, 404, 599]) {
+    for (const status of [200, 204, 302, 404, 599]) {
       expect(validateRule(rule({ status }))).toBeNull();
     }
   });
 
   it("rejects a header that would allow injection", () => {
     expect(
-      validateRule(
-        rule({ headers: [{ name: "x", value: "a\r\nSet-Cookie: pwned=1" }] }),
-      ),
+      validateRule(rule({ headers: [{ name: "x", value: "a\r\nSet-Cookie: pwned=1" }] })),
     ).toContain("line break");
   });
 
@@ -201,10 +195,7 @@ describe("applyMockAction", () => {
   });
 
   it("add keeps a caller-supplied id", () => {
-    const outcome = applyMockAction(
-      [],
-      params({ action: "add", rule: rule({ id: "m_fixed" }) }),
-    );
+    const outcome = applyMockAction([], params({ action: "add", rule: rule({ id: "m_fixed" }) }));
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.createdId).toBe("m_fixed");

@@ -72,7 +72,11 @@ impl Server {
             port,
             tls,
         };
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // Spawning a real server process, while every other test binary in the
+        // workspace runs in parallel. 10 s was observed to flake under that load
+        // and pass consistently on an idle machine; the check still fails a
+        // server that never becomes ready at all, which is what it is for.
+        let deadline = Instant::now() + Duration::from_secs(30);
         while !server.home.path().join("daemon.json").exists() {
             assert!(
                 server.child.try_wait().unwrap().is_none(),

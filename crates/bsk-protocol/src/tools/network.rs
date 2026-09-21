@@ -55,6 +55,18 @@ pub struct NetworkEntry {
     pub timestamp: Option<f64>,
     #[serde(default)]
     pub truncated: bool,
+    /// True when the extension answered this request locally.
+    ///
+    /// A mocked request never reaches the network stack, so it appears in no
+    /// other record — and a rule whose body imitates the real response is
+    /// indistinguishable from a real one by reading the payload. Marking it is
+    /// what makes "did this request go out?" answerable from the log at all.
+    #[serde(default)]
+    pub mocked: bool,
+    /// Rule that answered, when [`Self::mocked`]. Lets a hit be traced back to
+    /// a row in `bsk mock list` without matching on the URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -62,7 +74,15 @@ pub struct NetworkResult {
     pub tab_id: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<NetworkEntry>,
-    pub next_since: u64,
+    /// Cursor to pass back as `since`, absent when there is nothing to resume
+    /// from.
+    ///
+    /// A bare `0` was ambiguous: `since` is exclusive and `0` means "from the
+    /// beginning", so a caller that read `0` from an empty snapshot and passed
+    /// it back got the whole buffer rather than the next slice. Absent says
+    /// "nothing captured yet" without also saying "start over".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_since: Option<u64>,
     #[serde(default)]
     pub truncated: bool,
 }
@@ -92,6 +112,32 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_snapshot_omits_the_cursor_rather_than_sending_zero() {
+        // `0` is not a cursor: `since` is exclusive and `0` means "from the
+        // beginning", so a caller that echoed a `0` back re-read the entire
+        // buffer instead of continuing. Absent is the honest answer when there
+        // is nothing to resume from.
+        let empty = NetworkResult {
+            tab_id: 7,
+            entries: Vec::new(),
+            next_since: None,
+            truncated: false,
+        };
+        let value = serde_json::to_value(&empty).unwrap();
+        assert!(
+            value.get("next_since").is_none(),
+            "an absent cursor must not serialise as 0: {value}"
+        );
+
+        // Both shapes a peer can send are still understood.
+        let with_cursor: NetworkResult =
+            serde_json::from_value(json!({ "tab_id": 7, "next_since": 4 })).unwrap();
+        assert_eq!(with_cursor.next_since, Some(4));
+        let without: NetworkResult = serde_json::from_value(json!({ "tab_id": 7 })).unwrap();
+        assert_eq!(without.next_since, None);
+    }
+
+    #[test]
     fn network_result_round_trips_response_and_failure() {
         let result = NetworkResult {
             tab_id: 7,
@@ -108,6 +154,8 @@ mod tests {
                     error_text: None,
                     timestamp: Some(1234.5),
                     truncated: false,
+                    mocked: false,
+                    rule_id: None,
                 },
                 NetworkEntry {
                     sequence: 4,
@@ -121,9 +169,11 @@ mod tests {
                     error_text: Some("net::ERR_BLOCKED_BY_CLIENT".into()),
                     timestamp: Some(1240.0),
                     truncated: false,
+                    mocked: false,
+                    rule_id: None,
                 },
             ],
-            next_since: 4,
+            next_since: Some(4),
             truncated: false,
         };
         let value = serde_json::to_value(&result).unwrap();
@@ -137,5 +187,38 @@ mod tests {
         );
         let round: NetworkResult = serde_json::from_value(value).unwrap();
         assert_eq!(round, result);
+    }
+
+    #[test]
+    fn a_mocked_entry_keeps_its_mark_across_the_wire() {
+        // The extension is what produces this field; this struct is what decides
+        // whether it survives. A field added only on the TypeScript side is
+        // dropped here *silently*, because the struct does not deny unknown
+        // fields — so the round trip is the only place that can catch it.
+        let value = json!({
+            "tab_id": 7,
+            "entries": [{
+                "sequence": 1,
+                "kind": "response",
+                "url": "https://api.test/user/1",
+                "status": 200,
+                "truncated": false,
+                "mocked": true,
+                "rule_id": "m_abc123"
+            }]
+        });
+        let result: NetworkResult = serde_json::from_value(value).unwrap();
+        assert!(result.entries[0].mocked, "the mark must survive decoding");
+        assert_eq!(result.entries[0].rule_id.as_deref(), Some("m_abc123"));
+
+        // An entry from a peer that predates the field decodes as unmocked
+        // rather than failing, so a version skew cannot break `bsk network`.
+        let legacy: NetworkResult = serde_json::from_value(json!({
+            "tab_id": 7,
+            "entries": [{ "sequence": 1, "kind": "response", "truncated": false }]
+        }))
+        .unwrap();
+        assert!(!legacy.entries[0].mocked);
+        assert_eq!(legacy.entries[0].rule_id, None);
     }
 }

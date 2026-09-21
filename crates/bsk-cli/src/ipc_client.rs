@@ -7,7 +7,104 @@
 //!
 //! On Windows the same line protocol runs over a per-user named pipe.
 
-use bsk_protocol::RpcError;
+use std::fmt;
+
+use bsk_protocol::{ResponseBody, RpcError};
+
+/// Hint shown when the IPC link could not be established at all.
+pub const HINT_DAEMON_UNREACHABLE: &str =
+    "is the daemon running? try `bsk daemon start` or `bsk status`";
+
+/// Hint shown when the daemon answered, but not with something this CLI
+/// understands.
+///
+/// Chasing "is the daemon running?" here costs the user real time: the
+/// daemon *is* running. It is a different build — usually an older one that
+/// was started before the CLI was rebuilt, so its `Method` enum does not
+/// even contain the method being called.
+pub const HINT_DAEMON_BUILD_MISMATCH: &str =
+    "the daemon is a different build; `bsk daemon stop` and retry so the CLI starts its own";
+
+/// Marker for a failure on the CLI↔daemon link, carrying the hint to show.
+///
+/// `CliError::Local` is the CLI's catch-all: argument validation, a missing
+/// `--body-file`, JSON encoding and the IPC link all land in it. The hint
+/// therefore travels *with* the failure that knows what it is, instead of
+/// being inferred from the variant — a missing body file used to be told to
+/// go start a daemon that was already running.
+#[derive(Debug)]
+pub struct DaemonLinkError {
+    /// Hint to render beneath the error. `None` renders no hint.
+    pub hint: Option<&'static str>,
+    pub error: anyhow::Error,
+}
+
+impl fmt::Display for DaemonLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Only the wrapped error's own message, not its whole chain: `this`
+        // already sits *inside* that chain, and anyhow renders the chain with
+        // `{:#}`. Delegating the full chain here printed every inner cause
+        // twice.
+        write!(f, "{}", self.error)
+    }
+}
+
+impl std::error::Error for DaemonLinkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        // Skip one level for the same reason: the wrapped error's message is
+        // what `Display` above already printed.
+        self.error.source()
+    }
+}
+
+/// Tag a failure as belonging to the IPC link.
+///
+/// Idempotent: an error that already carries a [`DaemonLinkError`] keeps it,
+/// so the specific hint the decode paths attach survives. Anything else is
+/// treated as "could not reach the daemon", which is what a connect, write
+/// or read failure means.
+pub fn map_link_error(err: anyhow::Error) -> anyhow::Error {
+    if err
+        .chain()
+        .any(|cause| cause.downcast_ref::<DaemonLinkError>().is_some())
+    {
+        return err;
+    }
+    anyhow::Error::new(DaemonLinkError {
+        hint: Some(HINT_DAEMON_UNREACHABLE),
+        error: err,
+    })
+}
+
+/// Build a link failure with a specific hint.
+fn link_error(hint: &'static str, message: String) -> anyhow::Error {
+    anyhow::Error::new(DaemonLinkError {
+        hint: Some(hint),
+        error: anyhow::anyhow!(message),
+    })
+}
+
+/// Explanation for a response that could not be correlated to its request.
+///
+/// A frame carrying an id the caller never sent is a build mismatch, and the
+/// daemon's own complaint is the useful part: `invalid frame: unknown variant
+/// 'tool.mock'` names the problem, while "id mismatch" only names the symptom.
+fn id_mismatch_message(expected: &str, got: &str, body: &ResponseBody) -> String {
+    let mut message = format!("IPC response id mismatch: expected {expected}, got {got}");
+    if let ResponseBody::Err(err) = body {
+        message.push_str(&format!("; the daemon replied: {}", err.message));
+    }
+    message
+}
+
+/// Explanation for a reply that parsed as a frame but not as this CLI's
+/// expected result shape — also a build mismatch, in the other direction.
+fn result_mismatch_message(error: &serde_json::Error) -> String {
+    format!(
+        "the daemon's reply does not match this CLI's protocol; \
+         the two are different builds ({error})"
+    )
+}
 
 #[cfg(unix)]
 mod platform {
@@ -114,20 +211,33 @@ mod platform {
         match frame {
             Frame::Response(resp) => {
                 if resp.id != id {
-                    return Err(anyhow::anyhow!(
-                        "IPC response id mismatch: expected {id}, got {}",
-                        resp.id
+                    // A frame carrying an id the caller never sent means the
+                    // two sides disagree about the protocol, and the daemon's
+                    // own message is the useful half: it names the unknown
+                    // method. Dropping it left the caller with only "the ids
+                    // disagreed", which reads like version skew at best.
+                    return Err(super::link_error(
+                        super::HINT_DAEMON_BUILD_MISMATCH,
+                        super::id_mismatch_message(id, &resp.id, &resp.body),
                     ));
                 }
                 match resp.body {
                     ResponseBody::Ok(v) => {
-                        let value: R = serde_json::from_value(v).context("decode result")?;
+                        let value: R = serde_json::from_value(v).map_err(|err| {
+                            super::link_error(
+                                super::HINT_DAEMON_BUILD_MISMATCH,
+                                super::result_mismatch_message(&err),
+                            )
+                        })?;
                         Ok(Ok(value))
                     }
                     ResponseBody::Err(e) => Ok(Err(e)),
                 }
             }
-            other => Err(anyhow::anyhow!("unexpected frame from daemon: {other:?}")),
+            other => Err(super::link_error(
+                super::HINT_DAEMON_BUILD_MISMATCH,
+                format!("unexpected frame from daemon: {other:?}"),
+            )),
         }
     }
 }
@@ -264,20 +374,33 @@ mod platform {
         match frame {
             Frame::Response(resp) => {
                 if resp.id != id {
-                    return Err(anyhow::anyhow!(
-                        "IPC response id mismatch: expected {id}, got {}",
-                        resp.id
+                    // A frame carrying an id the caller never sent means the
+                    // two sides disagree about the protocol, and the daemon's
+                    // own message is the useful half: it names the unknown
+                    // method. Dropping it left the caller with only "the ids
+                    // disagreed", which reads like version skew at best.
+                    return Err(super::link_error(
+                        super::HINT_DAEMON_BUILD_MISMATCH,
+                        super::id_mismatch_message(id, &resp.id, &resp.body),
                     ));
                 }
                 match resp.body {
                     ResponseBody::Ok(v) => {
-                        let value: R = serde_json::from_value(v).context("decode result")?;
+                        let value: R = serde_json::from_value(v).map_err(|err| {
+                            super::link_error(
+                                super::HINT_DAEMON_BUILD_MISMATCH,
+                                super::result_mismatch_message(&err),
+                            )
+                        })?;
                         Ok(Ok(value))
                     }
                     ResponseBody::Err(e) => Ok(Err(e)),
                 }
             }
-            other => Err(anyhow::anyhow!("unexpected frame from daemon: {other:?}")),
+            other => Err(super::link_error(
+                super::HINT_DAEMON_BUILD_MISMATCH,
+                format!("unexpected frame from daemon: {other:?}"),
+            )),
         }
     }
 }
@@ -315,8 +438,14 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
+    /// Connect to the daemon's socket.
+    ///
+    /// A failure here is tagged as a link failure, which is the one place
+    /// "is the daemon running?" is genuinely the right thing to say.
     pub async fn connect(sock_path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
-        let inner = Client::connect_path(sock_path.as_ref().to_path_buf()).await?;
+        let inner = Client::connect_path(sock_path.as_ref().to_path_buf())
+            .await
+            .map_err(map_link_error)?;
         Ok(Self { inner })
     }
 
@@ -339,6 +468,7 @@ impl IpcClient {
             Some(p) => self.inner.call::<P, R>(method, &p, call_timeout).await,
             None => self.inner.call::<(), R>(method, &(), call_timeout).await,
         }
+        .map_err(map_link_error)
     }
 
     /// Same as [`IpcClient::call`] but pins the wire correlation id
@@ -366,6 +496,7 @@ impl IpcClient {
                     .await
             }
         }
+        .map_err(map_link_error)
     }
 }
 
@@ -376,4 +507,75 @@ fn random_id() -> String {
     let mut bytes = [0u8; 6];
     rng.fill(&mut bytes[..]);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The hint carried anywhere in an error's chain.
+    fn link_hint(err: &anyhow::Error) -> Option<&'static str> {
+        err.chain()
+            .find_map(|cause| cause.downcast_ref::<DaemonLinkError>())
+            .and_then(|link| link.hint)
+    }
+
+    fn daemon_error(message: &str) -> ResponseBody {
+        ResponseBody::Err(RpcError {
+            code: bsk_protocol::ErrorCode::ProtocolError,
+            message: message.into(),
+            data: None,
+        })
+    }
+
+    #[test]
+    fn id_mismatch_reports_what_the_daemon_said() {
+        // The daemon's own complaint is the actionable half — it names the
+        // method it did not recognise. Reporting only "the ids disagreed"
+        // sent the user looking for a daemon that was already running.
+        let message = id_mismatch_message(
+            "abc",
+            "0",
+            &daemon_error("invalid frame: unknown variant `tool.mock`"),
+        );
+        assert!(message.contains("expected abc"), "{message}");
+        assert!(message.contains("got 0"), "{message}");
+        assert!(message.contains("unknown variant `tool.mock`"), "{message}");
+    }
+
+    #[test]
+    fn id_mismatch_without_a_daemon_message_still_reports_the_mismatch() {
+        let message = id_mismatch_message("abc", "0", &ResponseBody::Ok(serde_json::json!({})));
+        assert!(message.contains("expected abc"), "{message}");
+        assert!(!message.contains("the daemon replied"), "{message}");
+    }
+
+    #[test]
+    fn tagging_a_link_failure_is_idempotent() {
+        let once = map_link_error(anyhow::anyhow!("connect refused"));
+        assert_eq!(link_hint(&once), Some(HINT_DAEMON_UNREACHABLE));
+        // Re-tagging must not bury the first hint under a second marker.
+        let twice = map_link_error(once);
+        assert_eq!(link_hint(&twice), Some(HINT_DAEMON_UNREACHABLE));
+        assert_eq!(
+            twice
+                .chain()
+                .filter(|cause| cause.downcast_ref::<DaemonLinkError>().is_some())
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn tagging_preserves_a_specific_hint_and_prints_the_message_once() {
+        let specific = anyhow::Error::new(DaemonLinkError {
+            hint: Some(HINT_DAEMON_BUILD_MISMATCH),
+            error: anyhow::anyhow!("IPC response id mismatch"),
+        });
+        let tagged = map_link_error(specific);
+        assert_eq!(link_hint(&tagged), Some(HINT_DAEMON_BUILD_MISMATCH));
+        // The marker forwards `Display` to the wrapped error *and* sits in the
+        // chain, so a naive `{:#}` renders the message twice.
+        assert_eq!(format!("{tagged:#}"), "IPC response id mismatch");
+    }
 }

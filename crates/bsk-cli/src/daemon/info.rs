@@ -27,6 +27,17 @@ pub struct DaemonInfo {
     /// `SystemTime` rendered as RFC 3339-ish seconds-since-epoch for
     /// portability across platforms.
     pub started_at_epoch_secs: u64,
+    /// Build revision of the `bsk` that started this daemon, as
+    /// [`crate::build_info::GIT_SHA`].
+    ///
+    /// `version` alone cannot separate a release install from a local build,
+    /// and a daemon left running from an older build is exactly the case that
+    /// costs users an hour: every version string on both sides matches, so
+    /// nothing looks skewed, and the first symptom is a reply the CLI cannot
+    /// parse. Defaulted so a `daemon.json` written by an older `bsk` still
+    /// parses; readers treat an empty value as "unknown", not as a mismatch.
+    #[serde(default)]
+    pub build: String,
 }
 
 impl DaemonInfo {
@@ -40,6 +51,7 @@ impl DaemonInfo {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
+            build: crate::build_info::GIT_SHA.to_string(),
         }
     }
 }

@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MockRule } from "@/transport/types";
 import {
+  isMockHitMessage,
+  isMockHitRuntimeMessage,
+  isMockRulesMessage,
+  MOCK_HIT_CHANNEL,
+  MOCK_HIT_MESSAGE_KIND,
+  MOCK_RULES_CHANNEL,
+  type MockHitMessage,
+  publishMockHit,
   publishMockRules,
   requestMockRules,
+  subscribeMockHits,
   subscribeMockRules,
   subscribeMockRulesRequests,
 } from "../bridge";
@@ -228,5 +237,80 @@ describe("bridge handshake", () => {
     await settleHandshake();
 
     expect(globalThis.fetch).toBe(original);
+  });
+});
+
+describe("mock hit reporting", () => {
+  // The fact that a request never reached the network exists only in the MAIN
+  // world, which cannot reach `chrome.runtime`. It crosses the same boundary the
+  // rule set does, in the opposite direction — so the guards matter for the same
+  // reason: the background is reachable from every content script in every tab.
+  it("carries a hit from the page side to the bridge side", async () => {
+    const hits: MockHitMessage[] = [];
+    cleanups.push(
+      subscribeMockHits((hit) => {
+        hits.push(hit);
+      }),
+    );
+
+    publishMockHit({ url: "https://api.test/user/1", method: "GET", status: 200, ruleId: "m_1" });
+    await settleHandshake();
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({
+      url: "https://api.test/user/1",
+      method: "GET",
+      status: 200,
+      ruleId: "m_1",
+    });
+  });
+
+  it("carries a hit whose rule has no id", async () => {
+    const hits: MockHitMessage[] = [];
+    cleanups.push(
+      subscribeMockHits((hit) => {
+        hits.push(hit);
+      }),
+    );
+
+    publishMockHit({ url: "https://api.test/x", method: "POST", status: 503 });
+    await settleHandshake();
+
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.ruleId).toBeUndefined();
+  });
+
+  it("rejects a malformed runtime hit rather than writing an unreadable row", async () => {
+    const valid = {
+      kind: MOCK_HIT_MESSAGE_KIND,
+      url: "https://api.test/x",
+      method: "GET",
+      status: 200,
+    };
+    expect(isMockHitRuntimeMessage(valid)).toBe(true);
+
+    // `status` is what the network view renders and `url` is what identifies the
+    // request; neither can be missing or non-finite.
+    expect(isMockHitRuntimeMessage({ ...valid, status: Number.NaN })).toBe(false);
+    expect(isMockHitRuntimeMessage({ ...valid, status: "200" })).toBe(false);
+    expect(isMockHitRuntimeMessage({ ...valid, url: undefined })).toBe(false);
+    expect(isMockHitRuntimeMessage({ ...valid, method: 7 })).toBe(false);
+    expect(isMockHitRuntimeMessage({ ...valid, ruleId: 7 })).toBe(false);
+    expect(isMockHitRuntimeMessage({ ...valid, kind: "other" })).toBe(false);
+    expect(isMockHitRuntimeMessage(null)).toBe(false);
+  });
+
+  it("keeps the rule-set and hit channels from being read as each other", () => {
+    // They share the window, so a guard loose enough to match both would let a
+    // rule set arrive as a hit (or the reverse).
+    expect(isMockHitMessage({ channel: MOCK_RULES_CHANNEL, rules: [] })).toBe(false);
+    expect(
+      isMockRulesMessage({
+        channel: MOCK_HIT_CHANNEL,
+        url: "https://x",
+        method: "GET",
+        status: 200,
+      }),
+    ).toBe(false);
   });
 });

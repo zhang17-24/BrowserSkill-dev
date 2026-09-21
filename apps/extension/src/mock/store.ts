@@ -14,7 +14,9 @@ import { MOCK_RULES_STORAGE_KEY, normaliseRules } from "./rules";
  */
 
 /** Read the rule set. Malformed entries are dropped, never thrown on. */
-export async function readMockRules(storage: StorageBackend = defaultStorage()): Promise<MockRule[]> {
+export async function readMockRules(
+  storage: StorageBackend = defaultStorage(),
+): Promise<MockRule[]> {
   const items = await storage.get(MOCK_RULES_STORAGE_KEY);
   return normaliseRules(items[MOCK_RULES_STORAGE_KEY]);
 }

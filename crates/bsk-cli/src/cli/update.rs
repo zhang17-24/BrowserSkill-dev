@@ -210,6 +210,24 @@ pub fn dispatch(args: UpdateArgs, format: Format) -> Result<(), CliError> {
     run(args, format).map_err(CliError::Local)
 }
 
+/// Extra clause for the "already up to date" report when this binary came from
+/// a git checkout.
+///
+/// The comparison is a plain semver one, so a local build of the released
+/// version number reports as "up to date": true of the number, misleading about
+/// the binary. One clause prevents someone concluding that their working tree
+/// matches what was released — or, worse, that the build they are testing is
+/// the published one.
+fn local_build_note() -> String {
+    if !crate::build_info::is_local_build() {
+        return String::new();
+    }
+    format!(
+        " (local build {}; release assets cannot be compared against a working tree)",
+        crate::build_info::GIT_SHA
+    )
+}
+
 fn run(args: UpdateArgs, format: Format) -> Result<()> {
     let client = update_http_client(ARCHIVE_FETCH_TIMEOUT)?;
     let manifest = fetch_manifest_with_client(&client, &manifest_url())?;
@@ -225,7 +243,7 @@ fn run(args: UpdateArgs, format: Format) -> Result<()> {
                 release_url: manifest.release_url,
                 asset_url: None,
                 install_action: None,
-                message: format!("bsk {current_version} is already up to date"),
+                message: format!("bsk {current_version} is already up to date{}", local_build_note()),
             },
         );
     };

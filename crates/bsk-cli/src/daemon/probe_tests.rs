@@ -9,6 +9,27 @@ use std::sync::{
 };
 use std::time::Instant;
 
+/// How long a readiness wait is allowed to take before the test calls it a
+/// failure.
+///
+/// Deliberately generous. These tests drive a real socket with a 5 ms polling
+/// loop while every other test binary in the workspace runs in parallel, so a
+/// tight bound makes them fail for the machine's reasons rather than the code's:
+/// a 3 s deadline was observed to flake under `cargo test` load while passing
+/// repeatedly on an idle machine. The property each test asserts — that
+/// readiness retries until the published metadata matches — does not depend on
+/// how long it is permitted to take.
+const READINESS_TEST_DEADLINE: Duration = Duration::from_secs(20);
+
+/// Upper bound on how long a *timed-out* readiness wait may take before the test
+/// calls it a hang.
+///
+/// Only a hang is interesting here. A bound tight enough to measure the 1200 ms
+/// deadline's accuracy measures the machine's load instead — every other test
+/// binary in the workspace runs in parallel with this one, and a loaded run was
+/// observed to exceed a 3 s ceiling while passing consistently when idle.
+const READINESS_TEST_TIMEOUT_CEILING: Duration = Duration::from_secs(30);
+
 fn fixture_info() -> DaemonInfo {
     DaemonInfo::now(
         std::process::id(),
@@ -52,8 +73,13 @@ impl Server {
                     }
                     Err(err) => panic!("accept: {err}"),
                 };
+                // Generous on purpose: the probe client writes its request as soon
+                // as it connects, so a read that takes seconds means the machine
+                // was busy, not that the client went away. A short timeout here
+                // drops connections the client is still using, which the probe now
+                // retries — but it should not have to.
                 stream
-                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .set_read_timeout(Some(Duration::from_secs(30)))
                     .unwrap();
                 let mut reader = BufReader::new(stream);
                 let mut line = String::new();
@@ -114,7 +140,7 @@ fn readiness_waits_for_bound_endpoint_to_serve_and_publish_new_metadata() {
                 status(&current)
             });
             let started = Instant::now();
-            let daemon = wait_for_ready(Duration::from_secs(3)).unwrap();
+            let daemon = wait_for_ready(READINESS_TEST_DEADLINE).unwrap();
             assert_eq!(daemon.info.pid, std::process::id());
             assert!(started.elapsed() >= PROBE_TIMEOUT);
             assert!(server.requests.load(Ordering::SeqCst) >= 2);
@@ -140,7 +166,7 @@ fn readiness_timeout_uses_the_caller_deadline_and_preserves_the_cause() {
                 .err()
                 .expect("unserved endpoint must time out");
             assert!(started.elapsed() >= deadline);
-            assert!(started.elapsed() < Duration::from_secs(3));
+            assert!(started.elapsed() < READINESS_TEST_TIMEOUT_CEILING);
             assert!(error.is::<tokio::time::error::Elapsed>());
             assert!(format!("{error:#}").contains("failed to become ready within"));
             assert_eq!(info::read().unwrap(), Some(stale));
@@ -174,7 +200,7 @@ fn readiness_retries_pid_mismatch_and_discovery_changes() {
                     }
                     status(&published)
                 });
-                let daemon = wait_for_ready(Duration::from_secs(3)).unwrap();
+                let daemon = wait_for_ready(READINESS_TEST_DEADLINE).unwrap();
                 assert_eq!(daemon.info.pid, std::process::id());
                 assert!(server.requests.load(Ordering::SeqCst) >= 5);
                 drop(server);

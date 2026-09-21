@@ -5,7 +5,7 @@
 //! human-readable by default; pass the global `--json` flag to get
 //! structured JSON instead.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -419,6 +419,7 @@ fn run_stop(sock: PathBuf, args: SessionStopArgs, format: Format) -> Result<(), 
             "session stop requires SESSION_ID or --all"
         )));
     }
+    warn_about_leftover_mock_rules(&sock, args.session_id.as_deref(), format);
     let reply: StopReply = call(
         sock,
         Method::SessionStop,
@@ -474,6 +475,37 @@ fn run_stop(sock: PathBuf, args: SessionStopArgs, format: Format) -> Result<(), 
         });
     }
     Ok(())
+}
+
+/// Warn when mock rules will outlive the session being stopped.
+///
+/// Rules live in the browser profile rather than in a session, so stopping a
+/// session deliberately leaves them in effect — but *silently*, and a rule left
+/// behind keeps rewriting what pages receive during the next session, or while
+/// the user browses normally. One line at the moment the user would expect
+/// cleanup to have happened is the cheapest place to say so.
+///
+/// Best-effort by construction: a failed or slow lookup prints nothing and can
+/// never affect the stop. `--all` is skipped because it has no single session to
+/// route the read through, and `--json` is skipped so machine-readable output
+/// stays machine-readable.
+fn warn_about_leftover_mock_rules(sock: &Path, session_id: Option<&str>, format: Format) {
+    if format != Format::Human {
+        return;
+    }
+    let Some(session_id) = session_id else {
+        return;
+    };
+    let Some(count) = crate::cli::mock::count_rules(sock, session_id) else {
+        return;
+    };
+    if count == 0 {
+        return;
+    }
+    println!(
+        "note: {count} mock rule(s) are still in effect — they are not scoped to this session, \
+         and they outlive it; `bsk mock clear` removes them"
+    );
 }
 
 fn run_list(sock: PathBuf, format: Format) -> Result<(), CliError> {

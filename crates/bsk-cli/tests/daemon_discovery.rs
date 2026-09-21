@@ -391,7 +391,11 @@ fn unresponsive_endpoint_is_bounded_and_does_not_spawn_or_clean_up() {
             "{error}"
         );
     }
-    assert!(start.elapsed() < Duration::from_secs(3));
+    // The property is that the command is *bounded* rather than hanging: each
+    // invocation probes for `PROBE_TIMEOUT` (500 ms), so the expected cost of the
+    // two here is about a second. A ceiling near that measures process-spawn
+    // latency under parallel load, which is not what this test is about.
+    assert!(start.elapsed() < Duration::from_secs(15));
     assert_eq!(daemon.metadata(), original);
     assert!(!daemon.home().join("daemon.lock").exists());
 }

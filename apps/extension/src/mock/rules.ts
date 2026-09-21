@@ -125,8 +125,12 @@ export function validateRule(rule: MockRule): string | null {
       return `method ${JSON.stringify(rule.method)} must be ASCII letters (e.g. GET, POST)`;
     }
   }
-  if (!Number.isInteger(rule.status) || rule.status < 100 || rule.status > 599) {
-    return `status ${rule.status} out of range (100..=599)`;
+  // The floor is 200, matching the `Response` constructor the interceptor uses:
+  // it rejects anything outside 200..599 with a `RangeError`, so a 1xx rule would
+  // pass validation and then fail inside the page as an error nobody can trace
+  // back to the rule. Mirrors `validate_rule` in the Rust protocol crate.
+  if (!Number.isInteger(rule.status) || rule.status < 200 || rule.status > 599) {
+    return `status ${rule.status} out of range (200..=599)`;
   }
   if (rule.body.length > MAX_BODY_LEN) {
     return `body is ${rule.body.length} bytes, over the ${MAX_BODY_LEN} byte limit`;

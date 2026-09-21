@@ -185,6 +185,7 @@ fn collect_checks(state: DaemonState) -> Vec<CheckResult> {
         check_daemon_running(&state),
         check_daemon_management(&state),
         check_version_compatible(state.status()),
+        check_daemon_build_matches(state.status()),
         check_extension_connected(state.status()),
         check_browsers_protocol_compatible(state.status()),
     ]
@@ -367,9 +368,56 @@ fn check_version_compatible(status: Option<&StatusResult>) -> CheckResult {
                 "daemon protocol {} (expected {}), app {}",
                 status.protocol_version, PROTOCOL_VERSION, status.daemon_version
             ),
-            "upgrade or restart bsk so CLI and daemon speak the same protocol version",
+            // Exact equality is the honest requirement here: the CLI↔daemon link
+            // has no negotiation, so a frame the other side cannot parse fails
+            // the call outright. Say *how* to fix it — the daemon is a
+            // long-lived process the user never started by hand, so "restart
+            // bsk" alone leaves them looking at the CLI they just ran.
+            "stop the running daemon (`bsk daemon stop`) and retry, so the CLI starts one from its own build",
         )
     }
+}
+
+/// `bsk doctor` check: is the daemon running the same build as this CLI?
+///
+/// The protocol check above cannot see this. A release install and a local
+/// `cargo build` of the same `Cargo.toml` version report the same
+/// `protocol_version` — that is precisely how a stale daemon keeps answering
+/// with a `Method` set that predates the caller, and how the failure surfaces
+/// instead as an unparseable reply that reads like "the daemon isn't running".
+/// The build revision is the only thing that separates the two.
+fn check_daemon_build_matches(status: Option<&StatusResult>) -> CheckResult {
+    let name = "daemon build matches CLI";
+    let Some(status) = status else {
+        return CheckResult::na(name, "daemon IPC is unavailable");
+    };
+    let ours = crate::build_info::GIT_SHA;
+    // An empty value comes from a daemon that predates build stamping. That is
+    // not evidence of a mismatch, so say so rather than guessing.
+    if status.daemon_build.is_empty() {
+        return CheckResult::ok(name, format!("daemon predates build stamping (CLI {ours})"));
+    }
+    if status.daemon_build == ours {
+        return CheckResult::ok(name, format!("both {ours}"));
+    }
+    if !crate::build_info::is_local_build() {
+        // A packaged build has no revision to compare against; the two were
+        // assembled by different pipelines and a difference is expected.
+        return CheckResult::na(
+            name,
+            format!(
+                "CLI is a release build; daemon reports {}",
+                status.daemon_build
+            ),
+        );
+    }
+    CheckResult::fail(
+        name,
+        format!("daemon is {} but this CLI is {ours}", status.daemon_build),
+        // The daemon is a process the user never started by hand, so "rebuild"
+        // or "restart bsk" leaves them staring at the same stale daemon.
+        "the daemon was started from a different build; run `bsk daemon stop` and retry so this CLI starts its own",
+    )
 }
 
 /// `bsk doctor` check: connected browsers should speak a protocol the
@@ -509,6 +557,9 @@ mod m2_tests {
     fn fake_status(browsers: Vec<BrowserStatusEntry>, skew: Vec<VersionSkewEntry>) -> StatusResult {
         StatusResult {
             daemon_version: env!("CARGO_PKG_VERSION").into(),
+            // Same build as the CLI under test, so the build check is a
+            // no-op for tests that are about something else.
+            daemon_build: crate::build_info::GIT_SHA.into(),
             protocol_version: "1.0".into(),
             pid: 1,
             uptime_secs: 0,
@@ -518,6 +569,44 @@ mod m2_tests {
             sessions: Vec::new(),
             version_skew_browsers: skew,
         }
+    }
+
+    #[test]
+    fn a_daemon_from_another_build_is_reported_with_a_way_out() {
+        // The case the protocol check cannot see: same version, same protocol
+        // string, different build. Left undetected, the only symptom is a reply
+        // the CLI cannot parse.
+        let mut status = fake_status(Vec::new(), Vec::new());
+        status.daemon_build = "0000000".into();
+        let check = check_daemon_build_matches(Some(&status));
+        assert_eq!(check.status, CheckStatus::Fail);
+        assert!(check.detail.contains("0000000"), "{}", check.detail);
+        assert!(
+            check
+                .hint
+                .as_deref()
+                .unwrap_or_default()
+                .contains("bsk daemon stop"),
+            "the hint must name the daemon, which the user never started by hand: {:?}",
+            check.hint
+        );
+    }
+
+    #[test]
+    fn a_daemon_that_predates_build_stamping_is_not_a_mismatch() {
+        // An older `daemon.json` has no build to compare. Reporting a failure
+        // there would be a guess, and a wrong one.
+        let mut status = fake_status(Vec::new(), Vec::new());
+        status.daemon_build = String::new();
+        let check = check_daemon_build_matches(Some(&status));
+        assert_eq!(check.status, CheckStatus::Ok);
+        assert!(check.detail.contains("predates"), "{}", check.detail);
+    }
+
+    #[test]
+    fn a_matching_build_passes() {
+        let check = check_daemon_build_matches(Some(&fake_status(Vec::new(), Vec::new())));
+        assert_eq!(check.status, CheckStatus::Ok);
     }
 
     #[test]

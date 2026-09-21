@@ -1,3 +1,4 @@
+import { i18n } from "@browser-skill/i18n";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -236,7 +237,10 @@ it("shows remote-specific guidance for a disconnected remote connection", async 
   render(<ConnectionSettings connectionEnabled disconnected />);
   fireEvent.click(screen.getByText("连接设置"));
   expect(await screen.findByText("无法连接远程服务，请检查服务器、网络或授权状态。")).toBeTruthy();
-  expect(screen.queryByText("无法连接，请确认 daemon 已启动且端口一致。")).toBeNull();
+  // Read the local message from the catalogue: hardcoding it made this pass
+  // vacuously once the copy was reworded, since the old text no longer existed
+  // to be found either way.
+  expect(screen.queryByText(i18n.t("popup.daemonUnreachable", { ns: "extension" }))).toBeNull();
 });
 
 it("shows an expired grant and asks for a new pairing without deleting it", async () => {

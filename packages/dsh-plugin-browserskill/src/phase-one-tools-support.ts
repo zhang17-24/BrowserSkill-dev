@@ -58,6 +58,14 @@ interface RawNetworkEntry {
   error_text?: string;
   timestamp?: number;
   truncated?: boolean;
+  /**
+   * True when the extension answered this request locally, so it never reached
+   * the network. Declared here because the mapping below rebuilds each entry
+   * field by field: a field the plugin does not name is dropped, and an
+   * unmarked mock reads as a request that went out.
+   */
+  mocked?: boolean;
+  rule_id?: string;
 }
 
 const HELP_CONDITION_SCHEMA = {
@@ -412,7 +420,7 @@ export function registerPhaseOneSupportTools(
                 },
               },
             },
-            nextSince: { type: "integer", required: true },
+            nextSince: { type: "integer" },
             truncated: { type: "boolean", required: true },
           },
         },
@@ -440,7 +448,9 @@ export function registerPhaseOneSupportTools(
                     })
                     .join("\n") +
                   (value.truncated
-                    ? `\n(output truncated; continue with since=${value.nextSince})`
+                    ? value.nextSince === undefined
+                      ? "\n(output truncated; nothing captured yet, so there is no cursor to continue from)"
+                      : `\n(output truncated; continue with since=${value.nextSince})`
                     : ""),
           },
         ],
@@ -455,7 +465,7 @@ export function registerPhaseOneSupportTools(
         const reply = (await runtime.run(exec, cmdArgs, "console", sessionId)) as {
           tab_id: number;
           entries?: RawConsoleEntry[];
-          next_since: number;
+          next_since?: number;
           truncated?: boolean;
         };
         return {
@@ -523,10 +533,15 @@ export function registerPhaseOneSupportTools(
                   errorText: { type: "string" },
                   timestamp: { type: "number" },
                   truncated: { type: "boolean", required: true },
+                  // Declared because this schema sets
+                  // `additionalProperties: false`: a field the mapping carries
+                  // but the schema omits fails validation outright.
+                  mocked: { type: "boolean" },
+                  ruleId: { type: "string" },
                 },
               },
             },
-            nextSince: { type: "integer", required: true },
+            nextSince: { type: "integer" },
             truncated: { type: "boolean", required: true },
           },
         },
@@ -537,14 +552,24 @@ export function registerPhaseOneSupportTools(
               value.entries.length === 0
                 ? "(no network activity captured)"
                 : value.entries
-                    .map((entry) =>
-                      entry.kind === "failure"
-                        ? `#${entry.sequence} FAILED ${entry.method ?? "?"} ${entry.url ?? "(unknown)"} — ${entry.errorText ?? "failed"}`
-                        : `#${entry.sequence} ${entry.status ?? "?"} ${entry.method ?? "?"} ${entry.url ?? "(unknown)"}`,
-                    )
+                    .map((entry) => {
+                      // A mocked entry is the one line here that was never on the
+                      // network. Unmarked it reads as an ordinary response and
+                      // the reader concludes the request went out.
+                      const provenance = entry.mocked
+                        ? entry.ruleId !== undefined
+                          ? `  [MOCKED by ${entry.ruleId}]`
+                          : "  [MOCKED]"
+                        : "";
+                      return entry.kind === "failure"
+                        ? `#${entry.sequence} FAILED ${entry.method ?? "?"} ${entry.url ?? "(unknown)"} — ${entry.errorText ?? "failed"}${provenance}`
+                        : `#${entry.sequence} ${entry.status ?? "?"} ${entry.method ?? "?"} ${entry.url ?? "(unknown)"}${provenance}`;
+                    })
                     .join("\n") +
                   (value.truncated
-                    ? `\n(output truncated; continue with since=${value.nextSince})`
+                    ? value.nextSince === undefined
+                      ? "\n(output truncated; nothing captured yet, so there is no cursor to continue from)"
+                      : `\n(output truncated; continue with since=${value.nextSince})`
                     : ""),
           },
         ],
@@ -558,7 +583,7 @@ export function registerPhaseOneSupportTools(
         const reply = (await runtime.run(exec, cmdArgs, "network", sessionId)) as {
           tab_id: number;
           entries?: RawNetworkEntry[];
-          next_since: number;
+          next_since?: number;
           truncated?: boolean;
         };
         return {
@@ -576,6 +601,11 @@ export function registerPhaseOneSupportTools(
             ...(entry.error_text !== undefined ? { errorText: entry.error_text } : {}),
             ...(entry.timestamp !== undefined ? { timestamp: entry.timestamp } : {}),
             truncated: entry.truncated ?? false,
+            // Carried through explicitly, like every other field here: this map
+            // builds a new object, so an unnamed field disappears and a mocked
+            // entry becomes indistinguishable from a real one.
+            ...(entry.mocked ? { mocked: true } : {}),
+            ...(entry.rule_id !== undefined ? { ruleId: entry.rule_id } : {}),
           })),
           nextSince: reply.next_since,
           truncated: reply.truncated ?? false,

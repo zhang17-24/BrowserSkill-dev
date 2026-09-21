@@ -280,9 +280,39 @@ table is on the extension's rules page, where the user can edit it by hand.
 
 Coverage is the page's own `fetch` and `XMLHttpRequest` calls. It does **not**
 cover `<img>`, `<script>`, CSS or document navigations, and it does not cover
-requests made inside a Service Worker. If a request in DevTools is not a
-fetch/XHR, a rule will silently never fire — check the request type before
-promising the user it can be mocked, and say plainly when it cannot.
+requests made inside a Service Worker. It also does not cover requests issued
+from an `about:blank` or `srcdoc` iframe: Chrome does not run the page-world
+script that installs the interceptor inside those frames, so a rule for such a
+request never fires — the frame's own requests reach the real backend, with no
+error anywhere.
+
+If a request in DevTools is not a fetch/XHR, a rule will silently never fire —
+check the request type before promising the user it can be mocked, and say
+plainly when it cannot.
+
+### Confirming a mock fired
+
+A mocked request never reaches the network, so it does **not** appear in
+DevTools' Network panel. `bsk network` **does** list it, marked
+`[MOCKED by <rule id>]`, because the extension reports every local answer — that
+is the one view that can tell you a request never went out. Everywhere else a
+log can only tell you a request is *gone*, and a rule whose body mimics the real
+response is indistinguishable from the real one by reading the payload.
+
+So never conclude "the mock did not work" from an empty or unchanged DevTools
+network log. Use a check that only the rule can explain:
+
+- Read `bsk network`: a hit appears as
+  `#4 200 GET https://api.example.com/user/1  [MOCKED by m_1a2b3c4d]`.
+- Make the mock body obviously yours — a marker field or value the real backend
+  would never return. A body that imitates the real response reads as
+  convincing and proves nothing.
+- Watch the page's own reaction to the payload: your value appearing in the UI,
+  a state change, a rendered string.
+- Look at the page Console: a fired rule logs
+  `[bsk mock] <METHOD> <url> — answered locally by rule <id>`.
+- If the backend records the request, check the backend: a mocked request never
+  arrives, so nothing there moves.
 
 Practical notes:
 
@@ -290,15 +320,24 @@ Practical notes:
   characters including `/`, `?` matches one. Matching is case-sensitive
   against the full URL, query string included.
 - Read `bsk network` first to get the exact URL the page requests rather than
-  reconstructing it from memory.
+  reconstructing it from memory — and read it again after the rule exists: hits
+  stay visible there, marked as mocked, so it is also how you confirm the URL you
+  matched is the URL being requested.
 - The first matching rule wins, in the order `bsk mock list` prints. Put
   narrow patterns above broad ones.
 - `--delay` makes loading and timeout states reachable; `--disabled` parks a
   rule without deleting it.
 - `--body-file <path>` reads UTF-8 text; `--body-file-base64 <path>` base64
   encodes bytes, for images and other binary payloads.
-- Clear rules you no longer need. A stale rule silently rewrites the user's
-  traffic, and they will blame the site.
+- Clear rules you no longer need, before you finish. They are browser-profile
+  scoped, so `session stop` does not remove them; they keep rewriting the user's
+  traffic afterwards, including while they browse normally. `bsk session stop`
+  prints a warning while any are still in effect.
+- A rule change applies to requests that start after it lands. A request already
+  in flight when you add or clear a rule is answered by whatever was in effect
+  when it started, so a response that looks like the old rule is not necessarily
+  a stale rule — check whether the request predates the change before concluding
+  anything about `bsk mock list`.
 
 ## Files and other tools
 
@@ -321,7 +360,12 @@ Use agent-local paths, not browser-internal staging paths.
   is intended. Consult each command's help for other flags.
 
 Use `console` / `network` for bounded read-only diagnostics; follow returned
-sequence cursors. `emulate --device iphone-14` affects one tab; `--off` restores it.
+sequence cursors. `--since` is exclusive, and the entries it selects come from
+the opposite end of the buffer depending on whether it is present: without
+`--since` you get the **newest** entries, with it you get the **oldest** after
+the cursor. There is no cursor when nothing has been captured yet — do not
+substitute `0`, which means "from the beginning" and re-reads everything.
+`emulate --device iphone-14` affects one tab; `--off` restores it.
 `evaluate` is a last resort: inspect JSON `.ok`, since a script exception can have
 CLI exit code 0. Never evaluate secrets. `record start` captures user actions;
 read its help first and never record banking, SSO or password-manager pages.

@@ -578,6 +578,14 @@ pub struct VersionSkewEntry {
 pub struct StatusResult {
     /// Semver of the daemon binary (`env!("CARGO_PKG_VERSION")`).
     pub daemon_version: String,
+    /// Build revision of the daemon binary (short git sha).
+    ///
+    /// `daemon_version` is not a build identity: a release install and a local
+    /// `cargo build` of the same `Cargo.toml` version both report the same
+    /// number while speaking different protocols. Defaulted for peers that
+    /// predate build stamping — an empty value means "unknown", not "mismatch".
+    #[serde(default)]
+    pub daemon_build: String,
     /// Logical protocol revision (e.g. `"1.0"`).
     pub protocol_version: String,
     /// Daemon process id.

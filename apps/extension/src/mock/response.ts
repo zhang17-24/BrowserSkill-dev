@@ -12,8 +12,12 @@ import type { MockRule } from "@/transport/types";
  * Statuses where the Fetch spec forbids a body. Handing `Response` a body for
  * one of these throws a TypeError, which would surface as an unrelated page
  * error rather than "your rule is wrong", so they are filtered here.
+ *
+ * Only 2xx–5xx appear: 1xx is informational, so the `Response` constructor
+ * rejects it outright and it never reaches this point. Validation keeps those
+ * out of the rule table for the same reason.
  */
-const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 
 export function isNullBodyStatus(status: number): boolean {
   return NULL_BODY_STATUSES.has(status);

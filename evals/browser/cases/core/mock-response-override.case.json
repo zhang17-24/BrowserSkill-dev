@@ -11,13 +11,7 @@
     "en": "Open {url}. The page calls an API and shows what it received. Add a rule that replaces that API's response with the JSON {\\\"source\\\":\\\"mock\\\",\\\"token\\\":\\\"MOCK-1\\\"}, then reload the page and confirm it now shows the replaced payload. Remove the rule when you are done, then close the browser session.",
     "zh-CN": "打开 {url}。页面会调用一个 API 并显示收到内容。添加一条规则，把该 API 的返回替换为 JSON {\\\"source\\\":\\\"mock\\\",\\\"token\\\":\\\"MOCK-1\\\"}，然后刷新页面，确认显示的是替换后的内容。完成后删除该规则，再关闭浏览器会话。"
   },
-  "coverage": [
-    "session.start",
-    "session.stop",
-    "page.navigate",
-    "page.reload",
-    "assist.mock"
-  ],
+  "coverage": ["session.start", "session.stop", "page.navigate", "page.reload", "assist.mock"],
   "assertions": {
     "site": [
       {
@@ -52,7 +46,7 @@
       {
         "action": "wait-site-event",
         "type": "mock.probe",
-        "where": { "data.source": "real" }
+        "where": { "source": "real" }
       },
       {
         "action": "mock",
@@ -68,7 +62,7 @@
       {
         "action": "wait-site-event",
         "type": "mock.probe",
-        "where": { "data.source": "mock" }
+        "where": { "source": "mock" }
       },
       { "action": "mock", "mode": "clear" }
     ]

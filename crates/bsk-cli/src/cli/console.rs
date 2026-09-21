@@ -21,11 +21,18 @@ pub struct ConsoleArgs {
     #[arg(long = "tab-id")]
     pub tab_id: Option<i64>,
 
-    /// Return entries with sequence greater than this cursor.
+    /// Return entries with sequence greater than this cursor (exclusive).
+    ///
+    /// Combining `--since` with `--limit` pages forward from a known cursor.
     #[arg(long)]
     pub since: Option<u64>,
 
     /// Maximum number of entries to return. Defaults to 50; extension caps at 200.
+    ///
+    /// Without `--since` this returns the **newest** entries; with `--since` it
+    /// returns the **oldest** after the cursor. The two modes read from opposite
+    /// ends of the buffer, so the same `--limit` means different things depending
+    /// on whether a cursor is present.
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     pub limit: Option<u32>,
 
@@ -87,10 +94,16 @@ fn render(reply: &ConsoleResult, format: Format) -> Result<(), CliError> {
                 }
             }
             if reply.truncated {
-                eprintln!(
-                    "warning: console output truncated (next_since={}). Use --since / --limit / --max-text-chars to request a different slice.",
-                    reply.next_since
-                );
+                // See `network`: an absent cursor means there is nothing to
+                // resume from, and printing `0` would read as "from the start".
+                match reply.next_since {
+                    Some(next) => eprintln!(
+                        "warning: console output truncated (next_since={next}). Use --since / --limit / --max-text-chars to request a different slice."
+                    ),
+                    None => eprintln!(
+                        "warning: console output truncated, with no cursor to resume from yet. Use --limit / --max-text-chars to request a different slice."
+                    ),
+                }
             }
         }
     }

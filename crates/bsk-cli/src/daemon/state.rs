@@ -17,7 +17,21 @@ use super::start::DaemonConfig;
 use super::ws::WsHandle;
 
 pub const DAEMON_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const PROTOCOL_VERSION: &str = "1.3";
+/// Wire protocol revision.
+///
+/// Bump this whenever the meaning of an existing frame, or the set of
+/// `Method` variants, changes — adding a method counts, because a peer built
+/// before it cannot even deserialise the request. `tool.mock` was added
+/// without a bump, so a daemon that predates it looked identical to one that
+/// understands it: same version string, same reported protocol, and the only
+/// symptom was an `IPC response id mismatch` that read like the daemon was not
+/// running. The handshake compares this string, so bumping it turns that class
+/// of mismatch into `version_skew` the moment the two sides connect.
+///
+/// Do not confuse this with `CDP_PROTOCOL_VERSION` (the Chrome DevTools
+/// Protocol revision, an unrelated pin) or `INTERACTION_POLICY_PROTOCOL` (the
+/// revision that introduced interaction-policy semantics).
+pub const PROTOCOL_VERSION: &str = "1.4";
 /// Base wire compatibility. New interaction semantics are checked per operation.
 pub const MIN_COMPATIBLE_PROTOCOL: &str = "1.0";
 /// Legacy app-semver floor used only when `HandshakeResult.min_compatible_peer`

@@ -3,7 +3,6 @@
   "title": "NetworkResult",
   "type": "object",
   "required": [
-    "next_since",
     "tab_id"
   ],
   "properties": {
@@ -14,7 +13,11 @@
       }
     },
     "next_since": {
-      "type": "integer",
+      "description": "Cursor to pass back as `since`, absent when there is nothing to resume from.\n\nA bare `0` was ambiguous: `since` is exclusive and `0` means \"from the beginning\", so a caller that read `0` from an empty snapshot and passed it back got the whole buffer rather than the next slice. Absent says \"nothing captured yet\" without also saying \"start over\".",
+      "type": [
+        "integer",
+        "null"
+      ],
       "format": "uint64",
       "minimum": 0.0
     },
@@ -57,7 +60,19 @@
             "null"
           ]
         },
+        "mocked": {
+          "description": "True when the extension answered this request locally.\n\nA mocked request never reaches the network stack, so it appears in no other record — and a rule whose body imitates the real response is indistinguishable from a real one by reading the payload. Marking it is what makes \"did this request go out?\" answerable from the log at all.",
+          "default": false,
+          "type": "boolean"
+        },
         "resource_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rule_id": {
+          "description": "Rule that answered, when [`Self::mocked`]. Lets a hit be traced back to a row in `bsk mock list` without matching on the URL.",
           "type": [
             "string",
             "null"

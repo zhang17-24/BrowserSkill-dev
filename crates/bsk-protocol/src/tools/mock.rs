@@ -198,9 +198,16 @@ pub fn validate_rule(rule: &MockRule) -> Result<(), String> {
             ));
         }
     }
-    if !(100..=599).contains(&rule.status) {
+    // 200 is the floor, not 100. The extension materialises a rule through the
+    // `Response` constructor, which rejects anything outside 200..=599 with a
+    // `RangeError` — Chrome's own words: "The status provided (101) is outside
+    // the range [200, 599]". Accepting 1xx here would pass validation, store the
+    // rule, and then fail inside the page as an error the user cannot connect
+    // back to their rule. A 1xx is informational and never a response a page
+    // can be handed anyway.
+    if !(200..=599).contains(&rule.status) {
         return Err(format!(
-            "status {} out of range (100..=599)",
+            "status {} out of range (200..=599)",
             rule.status
         ));
     }
@@ -454,14 +461,16 @@ mod tests {
 
     #[test]
     fn status_range_is_enforced() {
-        for bad in [0_u16, 99, 600, 999] {
+        // 100..199 is included on purpose: `Response` cannot represent it, so a
+        // rule carrying one would validate, store, and then throw in the page.
+        for bad in [0_u16, 99, 100, 101, 103, 199, 600, 999] {
             let rule = MockRule {
                 status: bad,
                 ..minimal_rule()
             };
             assert!(validate_rule(&rule).is_err(), "status {bad} should fail");
         }
-        for good in [100_u16, 200, 302, 404, 500, 599] {
+        for good in [200_u16, 201, 204, 302, 404, 500, 599] {
             let rule = MockRule {
                 status: good,
                 ..minimal_rule()

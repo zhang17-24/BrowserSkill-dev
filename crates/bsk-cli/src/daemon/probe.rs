@@ -176,17 +176,67 @@ pub(crate) fn wait_for_ready(timeout: Duration) -> Result<Box<VerifiedDaemon>> {
     }
 }
 
+/// Is this probe failure worth another attempt before the deadline?
+///
+/// A daemon that is still starting can accept a connection and then drop it — the
+/// listener is bound before the serving loop is up, and a restart closes sockets
+/// it had already queued. The client then sees its *write* fail with
+/// `BrokenPipe`, which says nothing about whether the daemon will be ready a
+/// moment later. Treating that as fatal made `wait_for_ready` give up on the
+/// first transient loss, so `bsk status` could report a daemon that was in fact
+/// about to come up; observed as an intermittent failure of the readiness tests,
+/// which retried successfully 25 ms later.
+///
+/// Deliberately narrow: this is the one kind added on evidence, and the kinds the
+/// existing test excludes stay excluded. `ConnectionReset` in particular may mean
+/// the socket is not the daemon we expect, and a foreign daemon is already
+/// detected through `DiscoveryRace`.
+///
+/// Retrying cannot hang: a daemon that is genuinely gone fails at `connect` with
+/// `NotFound`/`ConnectionRefused`, which `endpoint_absent` turns into
+/// `Probe::Absent` rather than a retryable error, and the caller's deadline
+/// bounds the loop either way.
 fn retryable_during_startup(err: &anyhow::Error) -> bool {
     err.is::<DiscoveryRace>()
         || err.is::<tokio::time::error::Elapsed>()
-        || err
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|err| err.kind() == ErrorKind::TimedOut)
+        || err.downcast_ref::<std::io::Error>().is_some_and(|err| {
+            matches!(err.kind(), ErrorKind::TimedOut | ErrorKind::BrokenPipe)
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_transient_connection_loss_during_startup_is_retried() {
+        // The daemon binds its listener before the serving loop is up and closes
+        // sockets across a restart, so a probe can lose a connection that was
+        // about to work. One `BrokenPipe` used to end the readiness wait
+        // immediately, reporting a daemon that was about to be ready as
+        // unreachable — and it was observed doing exactly that, intermittently,
+        // while the next attempt 25 ms later succeeded.
+        for kind in [ErrorKind::BrokenPipe, ErrorKind::TimedOut] {
+            let err = anyhow::Error::new(std::io::Error::from(kind)).context("query daemon status");
+            assert!(retryable_during_startup(&err), "{kind:?} should be retried");
+        }
+        // `ConnectionReset` is deliberately excluded: it can mean the socket is
+        // not the daemon we expect, and `startup_retries_only_timeouts_and_discovery_races`
+        // pins that decision.
+        let reset = anyhow::Error::new(std::io::Error::from(ErrorKind::ConnectionReset));
+        assert!(!retryable_during_startup(&reset));
+    }
+
+    #[test]
+    fn an_unreachable_daemon_is_not_retried_here() {
+        // `endpoint_absent` turns these into `Probe::Absent`, which the loop
+        // polls until the deadline; treating them as retryable errors would only
+        // change the message.
+        for kind in [ErrorKind::NotFound, ErrorKind::ConnectionRefused] {
+            let err = anyhow::Error::new(std::io::Error::from(kind)).context("connect IPC");
+            assert!(!retryable_during_startup(&err), "{kind:?} is absence, not a retry");
+        }
+    }
 
     #[test]
     fn only_missing_or_refused_connections_allow_startup() {

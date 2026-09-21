@@ -469,6 +469,43 @@ export class ChromiumCdp {
     };
   }
 
+  /**
+   * Record a request the extension answered locally, so `bsk network` can show
+   * it.
+   *
+   * A mocked request never reaches the network stack, which is the feature — but
+   * it also means it appears in no other record, and a rule whose body imitates
+   * the real response is indistinguishable from a real one by reading the
+   * payload. This is the only place that can say "this never went out".
+   *
+   * Injection goes through the same sequence counter and the same bounded buffer
+   * as a captured entry, so cursors stay monotonic and a reader paging with
+   * `since` sees mocked and real traffic interleaved in the order it happened. A
+   * separate list would lose the answer to "what did this page request, and what
+   * was mocked?" in the one view that claims to answer it.
+   *
+   * Returns `false` when this tab has no network capture attached. That is not a
+   * failure: `bsk network` only reads tabs the session controls, so a mark
+   * recorded for an unwatched tab would grow a buffer nobody ever reads.
+   */
+  recordMockedRequest(
+    tabId: number,
+    request: { url: string; method?: string; status?: number; ruleId?: string; timestamp?: number },
+  ): boolean {
+    if (!this.networkDomainsEnabledTabs.has(tabId)) return false;
+    this.appendNetwork(tabId, {
+      kind: "response",
+      method: request.method,
+      url: request.url,
+      status: request.status,
+      timestamp: request.timestamp,
+      truncated: false,
+      mocked: true,
+      ...(request.ruleId !== undefined ? { rule_id: request.ruleId } : {}),
+    });
+    return true;
+  }
+
   /** Detach if attached; never throws. */
   async detach(tabId: number): Promise<void> {
     const existing = this.detachInFlight.get(tabId);
@@ -975,17 +1012,26 @@ function readBufferedEntries<
   since: number | undefined,
   limit: number,
   project: (entry: TEntry) => TProjected,
-): { entries: TProjected[]; nextSince: number; truncated: boolean } {
+): { entries: TProjected[]; nextSince: number | undefined; truncated: boolean } {
   const hasCursor = typeof since === "number";
   const candidates = hasCursor ? buffer.filter((entry) => entry.sequence > since) : buffer;
+  // Without a cursor the caller wants the *newest* `limit` entries; with one they
+  // want the *oldest* after it. The two modes read from opposite ends on
+  // purpose, and that asymmetry is documented in `bsk network --help` because it
+  // is not guessable from the flag names.
   const limited = hasCursor ? candidates.slice(0, limit) : candidates.slice(-limit);
   const entries = limited.map(project);
   const oldestSequence = buffer[0]?.sequence ?? currentSequence + 1;
   const droppedEntries =
     currentSequence > buffer.length && (!hasCursor || (since ?? 0) < oldestSequence - 1);
+  const resumeFrom = entries.at(-1)?.sequence ?? currentSequence;
   return {
     entries,
-    nextSince: entries.at(-1)?.sequence ?? currentSequence,
+    // `0` is not a cursor: it means both "nothing captured on this tab yet" and,
+    // as `--since 0`, "from the beginning". A caller that read `0` here and
+    // passed it back silently got the whole buffer instead of the next slice.
+    // Absent is the honest answer when there is nothing to resume from.
+    nextSince: resumeFrom > 0 ? resumeFrom : undefined,
     truncated:
       droppedEntries ||
       candidates.length > limited.length ||
@@ -1270,6 +1316,12 @@ function projectNetworkEntry(entry: NetworkEntry, maxTextChars: number): Network
     timestamp: entry.timestamp,
     truncated:
       entry.truncated || (projectedUrl?.truncated ?? false) || (projectedError?.truncated ?? false),
+    // Named explicitly, like every other field here: this function rebuilds the
+    // entry rather than spreading it, so anything not listed is silently
+    // dropped. That is how a `mocked` mark would disappear between the buffer
+    // and the result the caller reads.
+    ...(entry.mocked ? { mocked: true } : {}),
+    ...(entry.rule_id !== undefined ? { rule_id: entry.rule_id } : {}),
   };
 }
 

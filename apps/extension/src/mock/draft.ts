@@ -93,8 +93,10 @@ export function parseHeaderLines(text: string): { headers: MockHeader[] } | { er
 /** Convert a draft into a rule, or explain what is wrong with it. */
 export function ruleFromDraft(draft: RuleDraft): { rule: MockRule } | { error: string } {
   const status = Number(draft.status.trim());
-  if (!Number.isInteger(status) || status < 100 || status > 599) {
-    return { error: `status ${JSON.stringify(draft.status)} must be between 100 and 599` };
+  // 200..599, not 100..599: `Response` refuses a status below 200, so a 1xx rule
+  // would save and then throw inside the page.
+  if (!Number.isInteger(status) || status < 200 || status > 599) {
+    return { error: `status ${JSON.stringify(draft.status)} must be between 200 and 599` };
   }
 
   const parsedHeaders = parseHeaderLines(draft.headers);

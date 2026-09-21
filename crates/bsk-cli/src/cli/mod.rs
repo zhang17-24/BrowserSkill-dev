@@ -92,10 +92,16 @@ pub struct GlobalFlags {
 }
 
 /// Top-level `bsk` CLI.
+///
+/// `long_version` is what `--version` prints; it carries the git revision, so
+/// two builds of the same app version are distinguishable. Two `bsk` binaries
+/// that both answer `0.3.0` are a real situation — a `cargo build` next to an
+/// installed release — and telling them apart used to require guessing.
 #[derive(Debug, Parser)]
 #[command(
     name = "bsk",
     version,
+    long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BSK_GIT_SHA"), ")"),
     about = "browser-skill — drive your browser from AI agents"
 )]
 pub struct Cli {
@@ -144,6 +150,24 @@ pub enum Command {
     Emulate(EmulateArgs),
 
     /// Manage request-mocking rules for frontend work without a backend.
+    ///
+    /// A matching request is answered locally by the extension, so it never
+    /// reaches the network. That is the point — the origin server never sees it
+    /// — but it also means the request does not appear in DevTools' Network
+    /// panel. `bsk network` does list it, marked `[MOCKED by <rule id>]`,
+    /// because the extension reports every local answer; that is the one place
+    /// that can tell you a request never went out, and the mark matters because
+    /// a rule whose body mimics the real response looks exactly like the real
+    /// response.
+    ///
+    /// Rules live in the browser profile rather than in a session, so they
+    /// survive `session stop`. `bsk session stop` warns when rules are still in
+    /// effect; `bsk mock clear` removes them.
+    ///
+    /// Coverage is the page's own `fetch` and `XMLHttpRequest` calls. It does
+    /// not cover `<img>`, `<script>`, CSS, document navigations, or requests
+    /// made from a Service Worker — a rule for one of those never fires, and
+    /// says nothing.
     Mock(MockCmd),
 
     /// Capture a PNG of the viewport, full page, DOM element or Canvas region.

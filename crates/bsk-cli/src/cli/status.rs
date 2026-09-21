@@ -85,8 +85,9 @@ fn render_human(s: &StatusResult) {
             );
         }
     }
-    let rows: [(&str, String); 8] = [
+    let rows: [(&str, String); 9] = [
         ("daemon version", s.daemon_version.clone()),
+        ("daemon build", display_daemon_build(s)),
         ("protocol version", s.protocol_version.clone()),
         ("pid", s.pid.to_string()),
         ("uptime", format_uptime(s.uptime_secs)),
@@ -99,6 +100,25 @@ fn render_human(s: &StatusResult) {
     for (key, value) in &rows {
         println!("{key:<label_width$}  {value}");
     }
+}
+
+/// The daemon's build, annotated when it is not the one this CLI came from.
+///
+/// "Same version, different build" is the state that costs the most time:
+/// every version string agrees while the two sides speak different protocols,
+/// and the first symptom is a reply that will not parse. Naming it here saves
+/// the user from running `--version` on two different binaries and comparing
+/// them by eye.
+fn display_daemon_build(status: &StatusResult) -> String {
+    let ours = crate::build_info::GIT_SHA;
+    if status.daemon_build.is_empty() {
+        // A daemon that predates build stamping. Not evidence of a mismatch.
+        return format!("unknown (this CLI is {ours})");
+    }
+    if status.daemon_build == ours {
+        return status.daemon_build.clone();
+    }
+    format!("{} (this CLI is {ours})", status.daemon_build)
 }
 
 fn render_json(s: &StatusResult) -> anyhow::Result<()> {

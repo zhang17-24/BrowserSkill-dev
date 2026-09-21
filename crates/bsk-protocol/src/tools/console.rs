@@ -80,7 +80,14 @@ pub struct ConsoleResult {
     pub tab_id: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entries: Vec<ConsoleEntry>,
-    pub next_since: u64,
+    /// Cursor to pass back as `since`, absent when there is nothing to resume
+    /// from.
+    ///
+    /// A bare `0` was ambiguous: `since` is exclusive and `0` means "from the
+    /// beginning", so a caller that read `0` from an empty snapshot and passed
+    /// it back got the whole buffer rather than the next slice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_since: Option<u64>,
     #[serde(default)]
     pub truncated: bool,
 }
@@ -132,7 +139,7 @@ mod tests {
                 }],
                 truncated: true,
             }],
-            next_since: 12,
+            next_since: Some(12),
             truncated: true,
         };
         let value = serde_json::to_value(&result).unwrap();

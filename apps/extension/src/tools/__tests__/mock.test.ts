@@ -184,11 +184,9 @@ describe("handleMock actions", () => {
         throw new Error("quota exceeded");
       },
     };
-    const result = await handleMock(
-      fakeManager(),
-      params({ action: "add", rule: rule() }),
-      { store },
-    );
+    const result = await handleMock(fakeManager(), params({ action: "add", rule: rule() }), {
+      store,
+    });
 
     expect(isError(result)).toBe(true);
     if (!isError(result)) return;

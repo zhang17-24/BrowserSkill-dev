@@ -4,6 +4,7 @@ import {
   absoluteUrl,
   describeFetchRequest,
   installMockInterceptor,
+  type MockedRequestInfo,
   type MockTarget,
 } from "../interceptor";
 
@@ -73,10 +74,16 @@ function makeTarget(baseUrl = "https://app.test/"): MockTarget & {
   };
 }
 
-function install(target: MockTarget, rules: MockRule[], sleep = vi.fn(async () => {})) {
+function install(
+  target: MockTarget,
+  rules: MockRule[],
+  sleep = vi.fn(async () => {}),
+  onMocked?: (info: MockedRequestInfo) => void,
+) {
   const uninstall = installMockInterceptor(target, {
     getRules: () => rules,
     sleep,
+    onMocked,
   });
   installed.push(uninstall);
   return { uninstall, sleep };
@@ -122,8 +129,11 @@ describe("describeFetchRequest", () => {
 
   it("reads a URL object", () => {
     expect(
-      describeFetchRequest(new URL("https://api.example.com/user/1"), undefined, "https://app.test/")
-        .url,
+      describeFetchRequest(
+        new URL("https://api.example.com/user/1"),
+        undefined,
+        "https://app.test/",
+      ).url,
     ).toBe("https://api.example.com/user/1");
   });
 
@@ -438,5 +448,62 @@ describe("XMLHttpRequest interception", () => {
     xhr.send();
 
     expect(FakeXhr.sent).toHaveLength(1);
+  });
+});
+
+describe("onMocked", () => {
+  // The hook is the only in-page signal that a rule fired. A mocked request
+  // never reaches the network, so it appears in no network log — without this
+  // there is nothing anywhere that distinguishes "the rule answered" from
+  // "the backend answered with something similar".
+  it("reports the url, method and rule that answered", async () => {
+    const seen: MockedRequestInfo[] = [];
+    const target = makeTarget();
+    install(target, [rule({ id: "m_1", body: "mocked" })], undefined, (info) => seen.push(info));
+
+    await target.fetch("https://api.example.com/user/1");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.url).toBe("https://api.example.com/user/1");
+    expect(seen[0]?.method).toBe("GET");
+    expect(seen[0]?.rule.id).toBe("m_1");
+  });
+
+  it("reports the XHR path too", async () => {
+    const seen: MockedRequestInfo[] = [];
+    const target = makeTarget();
+    install(target, [rule({ id: "m_2" })], undefined, (info) => seen.push(info));
+
+    const xhr = new target.XMLHttpRequest();
+    xhr.open("GET", "https://api.example.com/user/1");
+    xhr.send();
+
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]?.rule.id).toBe("m_2");
+  });
+
+  it("stays silent for a request no rule matches", async () => {
+    const seen: MockedRequestInfo[] = [];
+    const target = makeTarget();
+    install(target, [rule()], undefined, (info) => seen.push(info));
+
+    await target.fetch("https://api.example.com/other/1");
+
+    expect(target.realFetch).toHaveBeenCalledTimes(1);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("cannot break the response when the hook throws", async () => {
+    // Observability is a side channel: a console that is missing, wrapped or
+    // hostile must not turn a mock into an error.
+    const target = makeTarget();
+    install(target, [rule({ body: "still mocked" })], undefined, () => {
+      throw new Error("console exploded");
+    });
+
+    const response = await target.fetch("https://api.example.com/user/1");
+
+    expect(await response.text()).toBe("still mocked");
+    expect(target.realFetch).not.toHaveBeenCalled();
   });
 });

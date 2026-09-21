@@ -170,19 +170,32 @@ fn render_info_for(err: &CliError) -> Option<render_error::RenderInfo> {
         .map(|code| render_error::info_for_error(code, err.data()))
 }
 
-/// Hint line for human / JSON rendering, including the local-failure
-/// fallback when there is no daemon [`ErrorCode`].
+/// Hint line for human / JSON rendering.
+///
+/// The hint comes from whichever layer actually knows what went wrong: the
+/// `render_error` table for a structured daemon error, or a
+/// [`DaemonLinkError`](crate::ipc_client::DaemonLinkError) carried inside a
+/// local failure for the IPC link itself.
+///
+/// It deliberately does **not** infer a hint from `CliError::Local`. That
+/// variant is the CLI's catch-all — argument validation, a missing
+/// `--body-file`, JSON encoding and the IPC link all land there — so
+/// inferring "is the daemon running?" from it told users to go start a
+/// daemon that was already running.
 fn hint_for(
     err: &CliError,
     render_info: Option<&render_error::RenderInfo>,
 ) -> Option<&'static str> {
-    render_info
-        .and_then(|info| info.hint)
-        .or(if matches!(err, CliError::Local(_)) {
-            Some("is the daemon running? try `bsk daemon start` or `bsk status`")
-        } else {
-            None
-        })
+    if let Some(hint) = render_info.and_then(|info| info.hint) {
+        return Some(hint);
+    }
+    let CliError::Local(error) = err else {
+        return None;
+    };
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<crate::ipc_client::DaemonLinkError>())
+        .and_then(|link| link.hint)
 }
 
 /// Render an error to stderr (human-readable) or stdout (`--json`),
@@ -540,5 +553,60 @@ mod tests {
         .unwrap();
         assert_eq!(json["message"], message);
         assert_eq!(json["data"]["effect_state"], "unknown");
+    }
+
+    #[test]
+    fn local_failures_do_not_claim_the_daemon_is_down() {
+        // `CliError::Local` is the catch-all: argument validation, file IO and
+        // JSON encoding all land here. Telling a user whose `--body-file` is
+        // missing to go start a daemon that is already running is worse than
+        // saying nothing.
+        let err: CliError = anyhow::anyhow!("cannot read --body-file /tmp/nope").into();
+        assert_eq!(hint_for(&err, render_info_for(&err).as_ref()), None);
+    }
+
+    #[test]
+    fn link_failures_keep_their_own_hint() {
+        // A genuine link failure still gets a hint — carried by the error that
+        // knows it is a link failure, rather than inferred from the variant.
+        let unreachable: CliError =
+            crate::ipc_client::map_link_error(anyhow::anyhow!("connect refused")).into();
+        assert_eq!(
+            hint_for(&unreachable, render_info_for(&unreachable).as_ref()),
+            Some(crate::ipc_client::HINT_DAEMON_UNREACHABLE)
+        );
+
+        // A build mismatch must not be flattened into "is the daemon
+        // running?": the daemon *is* running, it is simply a different build.
+        let mismatch: CliError = Error::new(crate::ipc_client::DaemonLinkError {
+            hint: Some(crate::ipc_client::HINT_DAEMON_BUILD_MISMATCH),
+            error: anyhow::anyhow!("id mismatch"),
+        })
+        .into();
+        assert_eq!(
+            hint_for(&mismatch, render_info_for(&mismatch).as_ref()),
+            Some(crate::ipc_client::HINT_DAEMON_BUILD_MISMATCH)
+        );
+    }
+
+    #[test]
+    fn the_hint_survives_an_outer_context_without_duplicating_the_message() {
+        // `bsk mock` wraps `ensure_daemon()` in a context of its own, so the
+        // marker is never the top-level error in practice.
+        use anyhow::Context as _;
+        let err: CliError = crate::ipc_client::map_link_error(anyhow::anyhow!("no daemon"))
+            .context("ensure daemon is running")
+            .into();
+        assert_eq!(
+            hint_for(&err, render_info_for(&err).as_ref()),
+            Some(crate::ipc_client::HINT_DAEMON_UNREACHABLE)
+        );
+
+        let rendered = render_human_to_string(&err, None);
+        assert_eq!(
+            rendered.matches("no daemon").count(),
+            1,
+            "the wrapped message must render exactly once: {rendered}"
+        );
     }
 }

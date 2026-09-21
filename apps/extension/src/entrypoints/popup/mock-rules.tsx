@@ -1,6 +1,6 @@
 import { useTranslation } from "@browser-skill/i18n/react";
 import { Badge, Button } from "@browser-skill/ui";
-import { RiExternalLinkLine, RiDeleteBinLine } from "@remixicon/react";
+import { RiDeleteBinLine, RiExternalLinkLine } from "@remixicon/react";
 import { useState } from "react";
 import { useMockRules } from "@/mock/use-mock-rules";
 import { Switch } from "./switch";
@@ -22,6 +22,11 @@ export function MockRules() {
   };
 
   const clearAll = async () => {
+    // Confirm before the most destructive action on this surface. The full-page
+    // editor already asks before deleting a single rule, so clearing the whole
+    // table silently had the two the wrong way round — and the rules live only in
+    // this browser profile's storage, so there is nothing to restore them from.
+    if (!window.confirm(t("popup.mock.clearConfirm", { count: rules.length }))) return;
     setBusy(true);
     try {
       await save([]);
@@ -124,9 +129,7 @@ export function MockRules() {
                     </Badge>
                     <span className="text-[10px] text-muted-foreground">{rule.status}</span>
                     {rule.delay_ms !== undefined && (
-                      <span className="text-[10px] text-muted-foreground">
-                        +{rule.delay_ms}ms
-                      </span>
+                      <span className="text-[10px] text-muted-foreground">+{rule.delay_ms}ms</span>
                     )}
                   </span>
                 </span>

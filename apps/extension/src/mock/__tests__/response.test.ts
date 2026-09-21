@@ -23,7 +23,9 @@ function rule(overrides: Partial<MockRule> = {}): MockRule {
 
 describe("isNullBodyStatus", () => {
   it("flags the statuses that may not carry a body", () => {
-    for (const status of [101, 103, 204, 205, 304]) {
+    // Only 2xx–5xx: 1xx never gets this far, because the `Response` constructor
+    // rejects it before a body is even considered.
+    for (const status of [204, 205, 304]) {
       expect(isNullBodyStatus(status)).toBe(true);
     }
   });
@@ -142,9 +144,7 @@ describe("toResponse", () => {
   });
 
   it("preserves binary bytes through base64", async () => {
-    const response = toResponse(
-      rule({ body: "iVBORw==", body_encoding: "base64", status: 200 }),
-    );
+    const response = toResponse(rule({ body: "iVBORw==", body_encoding: "base64", status: 200 }));
     const bytes = new Uint8Array(await response.arrayBuffer());
     expect(Array.from(bytes)).toEqual([0x89, 0x50, 0x4e, 0x47]);
   });
