@@ -31,6 +31,13 @@ answers everything looks like it is working — so `bsk mock move <id> --to <#>`
 (and the up/down buttons on the rules page) make the order explicit. `bsk mock
 list` prints the positions `--to` takes.
 
+Each rule also carries a hit count, on the rules page and in the popup, with the
+last-fired time in its tooltip. `never fired` is the useful reading: it means the
+rule is shadowed by an earlier one, or wrong. Counting is batched in the service
+worker (a debounce, not a write per request) so a polling page cannot turn the
+counter into a storage write storm, and a count lost to a worker suspend is
+accepted as the cost of that.
+
 Since a replaced response leaves no trace in a network log, a mock also reports
 itself: the page Console gets `[bsk mock] <METHOD> <url> — answered locally by
 rule <id>`, `bsk network` lists the hit marked `[MOCKED by <rule id>]`, and

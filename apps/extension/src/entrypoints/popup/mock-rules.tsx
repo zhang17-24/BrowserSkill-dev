@@ -2,6 +2,8 @@ import { useTranslation } from "@browser-skill/i18n/react";
 import { Badge, Button } from "@browser-skill/ui";
 import { RiDeleteBinLine, RiExternalLinkLine } from "@remixicon/react";
 import { useState } from "react";
+import { HitCount } from "@/mock/hit-count";
+import { useMockHits } from "@/mock/use-mock-hits";
 import { useMockRules } from "@/mock/use-mock-rules";
 import { Switch } from "./switch";
 
@@ -15,6 +17,9 @@ import { Switch } from "./switch";
 export function MockRules() {
   const { t } = useTranslation("extension");
   const { rules, loading, error, save } = useMockRules();
+  // The counts answer "is this rule doing anything", which is the question the
+  // popup exists to answer at a glance.
+  const { hits } = useMockHits();
   const [busy, setBusy] = useState(false);
 
   const openPage = () => {
@@ -131,6 +136,7 @@ export function MockRules() {
                     {rule.delay_ms !== undefined && (
                       <span className="text-[10px] text-muted-foreground">+{rule.delay_ms}ms</span>
                     )}
+                    <HitCount hits={rule.id !== undefined ? hits[rule.id] : undefined} />
                   </span>
                 </span>
               </li>

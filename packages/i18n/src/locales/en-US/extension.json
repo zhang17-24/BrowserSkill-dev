@@ -314,6 +314,8 @@
     "edit": "Edit",
     "moveUp": "Move up",
     "moveDown": "Move down",
+    "hitCount": "{{count}} hits",
+    "neverHit": "Never fired",
     "enabled": "Enabled",
     "urlPattern": "URL pattern",
     "urlPatternHint": "Matched against the full request URL. * matches any characters, ? matches one.",

@@ -29,6 +29,8 @@ import { recordFrameCoordinator } from "@/lib/recording/frame-coordinator";
 import { attachSessionsLiveFlag } from "@/lib/sessions-live-flag";
 import { attachLongScreenshot } from "@/long-screenshot/background";
 import { isMockHitRuntimeMessage } from "@/mock/bridge";
+import { createHitCounter } from "@/mock/hit-counter";
+import { readMockHits, writeMockHits } from "@/mock/hits";
 import { createDisconnectCleanup } from "@/session-manager/disconnect-cleanup";
 import { attachSessionEventHandler } from "@/session-manager/event-handler";
 import { isAgentControlledTab, SessionManager } from "@/session-manager/manager";
@@ -81,6 +83,21 @@ export default defineBackground(() => {
     },
   });
   const sessionsLive = attachSessionsLiveFlag({ manager: sessions });
+  // Batched, so a page that issues hundreds of mocked requests per second costs
+  // one storage write rather than hundreds.
+  const mockHits = createHitCounter({
+    read: () => readMockHits(),
+    write: (table) => writeMockHits(table),
+    now: () => Date.now(),
+    schedule: (flush, ms) => {
+      setTimeout(flush, ms);
+    },
+  });
+  // An MV3 service worker can be stopped at any moment, so a hit counted a
+  // moment ago would otherwise be lost with the pending batch.
+  chrome.runtime.onSuspend.addListener(() => {
+    void mockHits.flush();
+  });
   let overlayGeneration = 0;
   const controlModes = new Map<string, OverlayMode>();
 
@@ -438,7 +455,16 @@ export default defineBackground(() => {
     // `OverlayMessage`, and intersecting a second `kind` literal union narrows it
     // to `never`.
     if (isMockHitRuntimeMessage(rawMsg)) {
-      if (sender.id === chrome.runtime.id && typeof sender.tab?.id === "number") {
+      // Sender first: another extension must not be able to inflate the counts
+      // that tell the user which of their rules is in effect.
+      if (sender.id !== chrome.runtime.id) return false;
+
+      // Counted independently of the network buffer: a rule that fires on a tab
+      // nobody is watching is still in effect, and the rules page is where that
+      // should show.
+      if (rawMsg.ruleId !== undefined) mockHits.record(rawMsg.ruleId);
+
+      if (typeof sender.tab?.id === "number") {
         cdp.recordMockedRequest(sender.tab.id, {
           url: rawMsg.url,
           method: rawMsg.method,

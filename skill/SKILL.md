@@ -313,6 +313,9 @@ network log. Use a check that only the rule can explain:
   `[bsk mock] <METHOD> <url> — answered locally by rule <id>`.
 - If the backend records the request, check the backend: a mocked request never
   arrives, so nothing there moves.
+- Point the user at the rules page or the popup: both show how many times each
+  rule has fired, and a rule reading `never fired` is either shadowed by an
+  earlier one or plain wrong. That is the fastest way for *them* to see it.
 
 Practical notes:
 

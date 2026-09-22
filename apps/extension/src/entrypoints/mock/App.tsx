@@ -17,7 +17,10 @@ import {
   ruleFromDraft,
   rulesFromJson,
 } from "@/mock/draft";
+import { HitCount } from "@/mock/hit-count";
+import type { RuleHits } from "@/mock/hits";
 import { applyMockAction } from "@/mock/rules";
+import { useMockHits } from "@/mock/use-mock-hits";
 import { useMockRules } from "@/mock/use-mock-rules";
 import type { MockRule } from "@/transport/types";
 
@@ -39,6 +42,9 @@ const TEXTAREA_CLASS =
 export function MockApp() {
   const { t } = useTranslation("extension");
   const { rules, loading, error, save } = useMockRules();
+  // Shown per rule so "which one is actually in effect" is answerable at a
+  // glance: a rule stuck at zero is shadowed by an earlier one, or wrong.
+  const { hits } = useMockHits();
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -240,6 +246,7 @@ export function MockApp() {
               busy={busy}
               // Position is precedence: the first match answers, so the ends are
               // where a move stops being possible.
+              hits={rule.id !== undefined ? hits[rule.id] : undefined}
               canMoveUp={index > 0}
               canMoveDown={index < rules.length - 1}
               onMoveUp={() => {
@@ -265,6 +272,7 @@ export function MockApp() {
 
 function RuleRow({
   rule,
+  hits,
   busy,
   canMoveUp,
   canMoveDown,
@@ -275,6 +283,8 @@ function RuleRow({
   onDelete,
 }: {
   rule: MockRule;
+  /** Undefined when this rule has never answered a request. */
+  hits: RuleHits | undefined;
   busy: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -317,6 +327,7 @@ function RuleRow({
             </Badge>
             <span>{rule.status}</span>
             {rule.delay_ms !== undefined && <span>+{rule.delay_ms}ms</span>}
+            <HitCount hits={hits} />
             {rule.note && <span className="truncate">{rule.note}</span>}
           </div>
           {rule.body !== "" && (

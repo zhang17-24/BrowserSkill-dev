@@ -314,6 +314,8 @@
     "edit": "편집",
     "moveUp": "위로 이동",
     "moveDown": "아래로 이동",
+    "hitCount": "{{count}}회 사용",
+    "neverHit": "사용되지 않음",
     "enabled": "사용 중",
     "urlPattern": "URL 패턴",
     "urlPatternHint": "전체 요청 URL 과 대조합니다. * 는 임의 문자, ? 는 한 문자입니다.",
