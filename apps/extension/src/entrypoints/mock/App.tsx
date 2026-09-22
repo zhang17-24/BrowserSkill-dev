@@ -2,6 +2,8 @@ import { useTranslation } from "@browser-skill/i18n/react";
 import { Badge, Button, cn, Input, Label } from "@browser-skill/ui";
 import {
   RiAddLine,
+  RiArrowDownLine,
+  RiArrowUpLine,
   RiDeleteBinLine,
   RiDownloadLine,
   RiPencilLine,
@@ -15,6 +17,7 @@ import {
   ruleFromDraft,
   rulesFromJson,
 } from "@/mock/draft";
+import { applyMockAction } from "@/mock/rules";
 import { useMockRules } from "@/mock/use-mock-rules";
 import type { MockRule } from "@/transport/types";
 
@@ -91,6 +94,33 @@ export function MockApp() {
     setBusy(true);
     try {
       await save(rules.map((entry) => (entry.id === rule.id ? { ...entry, enabled } : entry)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Move a rule one position up or down.
+   *
+   * Goes through `applyMockAction` rather than splicing here, so the bounds rule
+   * ("a position past the end is refused, not clamped") lives in the one place
+   * that is unit-tested — the same reason `bsk mock move` exists at all. The
+   * `session_id` is empty because this is not an RPC: the reducer only reads
+   * `action`, `id` and `to`.
+   */
+  const move = async (rule: MockRule, delta: -1 | 1) => {
+    const from = rules.findIndex((entry) => entry.id === rule.id);
+    if (from === -1) return;
+    const outcome = applyMockAction(rules, {
+      session_id: "",
+      action: "move",
+      id: rule.id,
+      to: from + delta,
+    });
+    if (!outcome.ok) return;
+    setBusy(true);
+    try {
+      await save(outcome.rules);
     } finally {
       setBusy(false);
     }
@@ -203,11 +233,21 @@ export function MockApp() {
         </p>
       ) : (
         <ul className="space-y-2" data-slot="mock-list">
-          {rules.map((rule) => (
+          {rules.map((rule, index) => (
             <RuleRow
               key={rule.id ?? rule.url_pattern}
               rule={rule}
               busy={busy}
+              // Position is precedence: the first match answers, so the ends are
+              // where a move stops being possible.
+              canMoveUp={index > 0}
+              canMoveDown={index < rules.length - 1}
+              onMoveUp={() => {
+                void move(rule, -1);
+              }}
+              onMoveDown={() => {
+                void move(rule, 1);
+              }}
               onToggle={(enabled) => {
                 void toggle(rule, enabled);
               }}
@@ -226,12 +266,20 @@ export function MockApp() {
 function RuleRow({
   rule,
   busy,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
   onToggle,
   onEdit,
   onDelete,
 }: {
   rule: MockRule;
   busy: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onToggle: (enabled: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -278,6 +326,34 @@ function RuleRow({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {/* Position is precedence, and adding appends — so without these a rule
+              added after a broader one can never fire. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={busy || !canMoveUp}
+            onClick={onMoveUp}
+            aria-label={t("mock.moveUp")}
+            title={t("mock.moveUp")}
+            data-slot="mock-rule-up"
+          >
+            <RiArrowUpLine className="size-3.5" aria-hidden />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            disabled={busy || !canMoveDown}
+            onClick={onMoveDown}
+            aria-label={t("mock.moveDown")}
+            title={t("mock.moveDown")}
+            data-slot="mock-rule-down"
+          >
+            <RiArrowDownLine className="size-3.5" aria-hidden />
+          </Button>
           <Button
             type="button"
             variant="ghost"

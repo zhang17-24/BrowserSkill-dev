@@ -323,8 +323,12 @@ Practical notes:
   reconstructing it from memory — and read it again after the rule exists: hits
   stay visible there, marked as mocked, so it is also how you confirm the URL you
   matched is the URL being requested.
-- The first matching rule wins, in the order `bsk mock list` prints. Put
-  narrow patterns above broad ones.
+- The first matching rule wins, in the order `bsk mock list` prints — that order
+  is its `#` column. `bsk mock add` appends, so a rule added *after* a broader
+  one never fires: put the narrow rule above with
+  `bsk mock move <id> --to <#>` (the rules page has up/down buttons for this).
+  When a rule looks like it is being ignored, check the order before doubting the
+  pattern.
 - `--delay` makes loading and timeout states reachable; `--disabled` parks a
   rule without deleting it.
 - `--body-file <path>` reads UTF-8 text; `--body-file-base64 <path>` base64

@@ -312,6 +312,8 @@
     "cancel": "取消",
     "delete": "删除",
     "edit": "编辑",
+    "moveUp": "上移",
+    "moveDown": "下移",
     "enabled": "已启用",
     "urlPattern": "URL 匹配",
     "urlPatternHint": "对完整请求 URL 匹配。* 匹配任意字符，? 匹配单个字符。",

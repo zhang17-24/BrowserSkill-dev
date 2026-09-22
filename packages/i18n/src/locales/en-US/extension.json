@@ -312,6 +312,8 @@
     "cancel": "Cancel",
     "delete": "Delete",
     "edit": "Edit",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
     "enabled": "Enabled",
     "urlPattern": "URL pattern",
     "urlPatternHint": "Matched against the full request URL. * matches any characters, ? matches one.",

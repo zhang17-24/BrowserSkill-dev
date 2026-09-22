@@ -263,6 +263,7 @@ async fn mock_add_is_forwarded_with_the_rule_intact() {
         rule: Some(sample_rule()),
         id: None,
         rules: None,
+        to: None,
     };
     let mut ipc = bsk::ipc_client::IpcClient::connect(&sock).await.unwrap();
     let call = tokio::spawn(async move {
@@ -320,6 +321,7 @@ async fn mock_result_travels_back_to_the_caller() {
         rule: None,
         id: None,
         rules: None,
+        to: None,
     };
     let mut ipc = bsk::ipc_client::IpcClient::connect(&sock).await.unwrap();
     let call = tokio::spawn(async move {

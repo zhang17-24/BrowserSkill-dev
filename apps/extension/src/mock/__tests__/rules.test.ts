@@ -244,6 +244,58 @@ describe("applyMockAction", () => {
     expect(applyMockAction([rule()], params({ action: "remove" })).ok).toBe(false);
   });
 
+  it("move reorders the table without touching the rules", () => {
+    const current = [
+      rule({ id: "m_a", url_pattern: "https://a.test/*" }),
+      rule({ id: "m_b", url_pattern: "https://b.test/*" }),
+      rule({ id: "m_c", url_pattern: "https://c.test/*" }),
+    ];
+    const outcome = applyMockAction(current, params({ action: "move", id: "m_c", to: 0 }));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rules.map((entry) => entry.id)).toEqual(["m_c", "m_a", "m_b"]);
+    // Same rules, same content — only precedence moved.
+    const byId = (rules: MockRule[]) =>
+      [...rules].sort((x, y) => (x.id ?? "").localeCompare(y.id ?? ""));
+    expect(byId(outcome.rules)).toEqual(byId([...current]));
+    // The caller's array is not mutated in place.
+    expect(current.map((entry) => entry.id)).toEqual(["m_a", "m_b", "m_c"]);
+  });
+
+  it("move to the position it already occupies succeeds and changes nothing", () => {
+    const current = [rule({ id: "m_a" }), rule({ id: "m_b" })];
+    const outcome = applyMockAction(current, params({ action: "move", id: "m_a", to: 0 }));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rules.map((entry) => entry.id)).toEqual(["m_a", "m_b"]);
+  });
+
+  it("move refuses a position past the end rather than clamping", () => {
+    // "Moved it to the end" and "it was already at the end" are different
+    // answers, and a silent clamp hides a caller working from a stale list.
+    const current = [rule({ id: "m_a" }), rule({ id: "m_b" })];
+    for (const to of [2, 99, -1]) {
+      const outcome = applyMockAction(current, params({ action: "move", id: "m_a", to }));
+      expect(outcome.ok, `to=${to} should be refused`).toBe(false);
+      if (outcome.ok) return;
+      expect(outcome.message).toContain("position");
+    }
+  });
+
+  it("move refuses an unknown id and a missing position", () => {
+    const current = [rule({ id: "m_a" })];
+
+    const unknown = applyMockAction(current, params({ action: "move", id: "m_x", to: 0 }));
+    expect(unknown.ok).toBe(false);
+    if (unknown.ok) return;
+    expect(unknown.message).toContain("no rule with id");
+
+    const missing = applyMockAction(current, params({ action: "move", id: "m_a" }));
+    expect(missing.ok).toBe(false);
+    if (missing.ok) return;
+    expect(missing.message).toContain("position");
+  });
+
   it("clear empties the table and reports how many went", () => {
     const outcome = applyMockAction(
       [rule({ id: "m_1" }), rule({ id: "m_2" })],

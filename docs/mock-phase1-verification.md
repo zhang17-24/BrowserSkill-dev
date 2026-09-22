@@ -25,6 +25,12 @@ reloads, and are shared between the agent (via `bsk mock`) and the user (via the
 extension's rules page). A matched request is fulfilled locally — this replaces
 the response, it is not a redirect, and the origin server never sees it.
 
+Rule order is precedence: the first match answers. Because `add` appends, a rule
+added after a broader one could never fire — silently, since a broad rule that
+answers everything looks like it is working — so `bsk mock move <id> --to <#>`
+(and the up/down buttons on the rules page) make the order explicit. `bsk mock
+list` prints the positions `--to` takes.
+
 Since a replaced response leaves no trace in a network log, a mock also reports
 itself: the page Console gets `[bsk mock] <METHOD> <url> — answered locally by
 rule <id>`, `bsk network` lists the hit marked `[MOCKED by <rule id>]`, and

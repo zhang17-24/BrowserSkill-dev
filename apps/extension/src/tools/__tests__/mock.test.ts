@@ -130,6 +130,29 @@ describe("handleMock actions", () => {
     expect(store.rules).toEqual([]);
   });
 
+  it("move reorders the stored table, and an out-of-range position changes nothing", async () => {
+    const store = memoryStore([
+      rule({ id: "m_a", url_pattern: "https://a.test/*" }),
+      rule({ id: "m_b", url_pattern: "https://b.test/*" }),
+      rule({ id: "m_c", url_pattern: "https://c.test/*" }),
+    ]);
+
+    const moved = await handleMock(fakeManager(), params({ action: "move", id: "m_c", to: 0 }), {
+      store,
+    });
+    if ("code" in moved) throw new Error(`unexpected error: ${JSON.stringify(moved)}`);
+    // Echoed *and* persisted: a rule that only moved in the reply would be a lie
+    // about the next request.
+    expect(moved.rules.map((entry) => entry.id)).toEqual(["m_c", "m_a", "m_b"]);
+    expect(store.rules.map((entry) => entry.id)).toEqual(["m_c", "m_a", "m_b"]);
+
+    const refused = await handleMock(fakeManager(), params({ action: "move", id: "m_c", to: 3 }), {
+      store,
+    });
+    expect(refused).toMatchObject({ code: "invalid_params" });
+    expect(store.rules.map((entry) => entry.id)).toEqual(["m_c", "m_a", "m_b"]);
+  });
+
   it("replace_all swaps the whole set", async () => {
     const store = memoryStore([rule({ id: "m_old" })]);
     const result = await handleMock(

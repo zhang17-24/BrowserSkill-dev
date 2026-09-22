@@ -905,8 +905,13 @@ export interface EmulateResult {
 // Request-mocking rules (`tool.mock`). Mirrors crates/bsk-protocol/src/tools/mock.rs.
 // --------------------------------------------------------------------------
 
-/** Which CRUD operation a `tool.mock` call performs. */
-export type MockAction = "add" | "list" | "remove" | "clear" | "replace_all";
+/**
+ * Which operation a `tool.mock` call performs.
+ *
+ * `move` exists because rule position *is* precedence — the first match answers —
+ * and `add` appends. Without it a rule added after a broader one can never fire.
+ */
+export type MockAction = "add" | "list" | "remove" | "clear" | "replace_all" | "move";
 
 /** How the interceptor decodes {@link MockRule.body}. */
 export type MockBodyEncoding = "text" | "base64";
@@ -946,10 +951,12 @@ export interface MockParams {
   action: MockAction;
   /** Required by `add`. */
   rule?: MockRule;
-  /** Required by `remove`. */
+  /** Required by `remove`, and by `move` to identify the rule. */
   id?: string;
   /** Required by `replace_all`. */
   rules?: MockRule[];
+  /** Zero-based destination position. Required by `move`. */
+  to?: number;
 }
 
 export interface MockResult {

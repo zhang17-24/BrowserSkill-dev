@@ -56,6 +56,15 @@ pub enum MockAction {
     /// Atomically replace the whole rule set. Used by `import` so a partial
     /// failure cannot leave a half-applied rule table.
     ReplaceAll,
+    /// Move one rule to a different position.
+    ///
+    /// Position is precedence: the first rule that matches answers the request.
+    /// Adding appends, which means a rule added *after* a broader one can never
+    /// fire — silently, because a broad rule that matches everything looks like
+    /// it is working. Neither "append" nor "insert first" is right in general
+    /// (the first makes a narrow rule unreachable, the second makes every older
+    /// rule unreachable), so position is made explicit instead of implied.
+    Move,
 }
 
 impl MockAction {
@@ -67,6 +76,7 @@ impl MockAction {
             MockAction::Remove => "remove",
             MockAction::Clear => "clear",
             MockAction::ReplaceAll => "replace_all",
+            MockAction::Move => "move",
         }
     }
 }
@@ -155,6 +165,12 @@ pub struct MockParams {
     /// Complete rule set to install. Required by `replace_all`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<Vec<MockRule>>,
+    /// Zero-based position to move the rule to. Required by `move`, and must be
+    /// less than the number of rules — the extension rejects a position past the
+    /// end rather than clamping, because "moved it to the end" and "it was
+    /// already at the end" are different answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -292,6 +308,7 @@ mod tests {
             (MockAction::Remove, "remove"),
             (MockAction::Clear, "clear"),
             (MockAction::ReplaceAll, "replace_all"),
+            (MockAction::Move, "move"),
         ] {
             assert_eq!(serde_json::to_value(action).unwrap(), json!(wire));
             let round: MockAction = serde_json::from_value(json!(wire)).unwrap();
@@ -371,6 +388,7 @@ mod tests {
             rule: None,
             id: None,
             rules: None,
+            to: None,
         };
         assert_eq!(
             serde_json::to_value(&params).unwrap(),
@@ -386,6 +404,7 @@ mod tests {
             rule: Some(minimal_rule()),
             id: None,
             rules: None,
+            to: None,
         };
         let value = serde_json::to_value(&params).unwrap();
         assert_eq!(value["action"], json!("add"));
@@ -393,6 +412,25 @@ mod tests {
             value["rule"]["url_pattern"],
             json!("https://api.example.com/user/*")
         );
+    }
+
+    #[test]
+    fn move_params_carry_the_position_and_allow_zero() {
+        let params = MockParams {
+            session_id: "abcd".into(),
+            action: MockAction::Move,
+            rule: None,
+            id: Some("m_1".into()),
+            rules: None,
+            to: Some(0),
+        };
+        let value = serde_json::to_value(&params).unwrap();
+        assert_eq!(value["action"], json!("move"));
+        assert_eq!(value["to"], json!(0));
+        // Position 0 is meaningful — "first", which wins — so it must survive the
+        // round trip rather than being treated as absent.
+        let round: MockParams = serde_json::from_value(value).unwrap();
+        assert_eq!(round.to, Some(0));
     }
 
     #[test]

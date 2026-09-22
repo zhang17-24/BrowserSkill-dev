@@ -214,6 +214,34 @@ export function applyMockAction(
       return { ok: true, rules: next, removed: 1 };
     }
 
+    case "move": {
+      // Position is precedence, and `add` appends — so without this a rule added
+      // after a broader one can never fire, silently, because the broad rule that
+      // answers everything looks like it is working.
+      if (!params.id) return { ok: false, message: "move requires an id" };
+      const from = current.findIndex((rule) => rule.id === params.id);
+      if (from === -1) {
+        return { ok: false, message: `no rule with id ${JSON.stringify(params.id)}` };
+      }
+      const to = params.to;
+      if (to === undefined || !Number.isInteger(to) || to < 0 || to >= current.length) {
+        // Refused rather than clamped: "moved it to the end" and "it was already
+        // at the end" are different answers, and a silent clamp hides a caller
+        // working from a stale list.
+        return {
+          ok: false,
+          message: `move needs a position between 0 and ${current.length - 1} for ${current.length} rule(s)`,
+        };
+      }
+      if (from === to) return { ok: true, rules: [...current] };
+
+      const next = [...current];
+      const [moved] = next.splice(from, 1);
+      // `from` was found in `current`, so the splice always produced one element.
+      next.splice(to, 0, moved as MockRule);
+      return { ok: true, rules: next };
+    }
+
     case "clear":
       return { ok: true, rules: [], removed: current.length };
 
@@ -251,6 +279,7 @@ export function isKnownAction(value: unknown): value is MockAction {
     value === "list" ||
     value === "remove" ||
     value === "clear" ||
-    value === "replace_all"
+    value === "replace_all" ||
+    value === "move"
   );
 }

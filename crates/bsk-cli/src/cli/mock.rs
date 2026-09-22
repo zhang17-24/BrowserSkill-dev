@@ -62,6 +62,12 @@ pub enum MockSub {
     Remove(RemoveArgs),
     /// Delete every rule.
     Clear,
+    /// Move a rule to another position.
+    ///
+    /// The first matching rule wins, and `add` appends — so a rule added after a
+    /// broader one never fires. Use this to put a narrow rule above a broad one.
+    #[command(name = "move")]
+    Move(MoveArgs),
     /// Load a rule set from a JSON file.
     Import(ImportArgs),
     /// Write the current rule set to a JSON file (or stdout).
@@ -130,6 +136,17 @@ pub struct AddArgs {
 pub struct RemoveArgs {
     /// Id of the rule to delete, as printed by `bsk mock list`.
     pub id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct MoveArgs {
+    /// Id of the rule to move, as printed by `bsk mock list`.
+    pub id: String,
+
+    /// Position to move it to. Position 0 is evaluated first; the positions are
+    /// the `#` column of `bsk mock list`.
+    #[arg(long, value_name = "INDEX")]
+    pub to: usize,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -287,6 +304,7 @@ pub fn build_add_params(
         rule: Some(rule),
         id: None,
         rules: None,
+        to: None,
     })
 }
 
@@ -302,6 +320,7 @@ pub fn build_remove_params(session: &str, args: &RemoveArgs) -> Result<MockParam
         rule: None,
         id: Some(id.to_string()),
         rules: None,
+        to: None,
     })
 }
 
@@ -317,6 +336,7 @@ pub fn build_replace_params(
         rule: None,
         id: None,
         rules: Some(rules),
+        to: None,
     })
 }
 
@@ -328,7 +348,24 @@ pub fn build_simple_params(session: &str, action: MockAction) -> MockParams {
         rule: None,
         id: None,
         rules: None,
+        to: None,
     }
+}
+
+/// Build the wire params for `move`.
+pub fn build_move_params(session: &str, args: &MoveArgs) -> Result<MockParams, CliError> {
+    let id = args.id.trim();
+    if id.is_empty() {
+        return Err(invalid_params("rule id must not be empty"));
+    }
+    Ok(MockParams {
+        session_id: session.to_string(),
+        action: MockAction::Move,
+        rule: None,
+        id: Some(id.to_string()),
+        rules: None,
+        to: Some(args.to),
+    })
 }
 
 /// `session.list` reply, mirrored locally to avoid reaching into another
@@ -442,6 +479,17 @@ pub fn dispatch(cmd: MockCmd, format: Format) -> Result<(), CliError> {
             let reply: MockResult = call(sock, Method::ToolMock, Some(params))?;
             render(&reply, format, RenderHint::Clear)
         }
+        MockSub::Move(args) => {
+            let session = session()?;
+            let params = build_move_params(&session, &args)?;
+            let reply: MockResult = call(sock, Method::ToolMock, Some(params))?;
+            // The result carries no field describing a move — the reordered table
+            // *is* the answer — so the confirmation comes from the arguments.
+            if format == Format::Human {
+                println!("moved {} to position {}", args.id.trim(), args.to);
+            }
+            render(&reply, format, RenderHint::List)
+        }
         MockSub::Import(args) => {
             let session = session()?;
             let raw = std::fs::read_to_string(&args.file).map_err(|err| {
@@ -534,17 +582,21 @@ fn render(reply: &MockResult, format: Format, hint: RenderHint) -> Result<(), Cl
     if reply.rules.is_empty() {
         println!("(no mock rules)");
     } else {
+        // The position column is what `bsk mock move --to` takes, and it is also
+        // the precedence order: the first match answers. Printing it is what makes
+        // "move the narrow rule above the broad one" actionable rather than
+        // guesswork.
         println!(
-            "{:<12}  {:<5}  {:<7}  {:<6}  {}",
-            "ID", "STATE", "METHOD", "STATUS", "URL PATTERN"
+            "{:<3}  {:<12}  {:<5}  {:<7}  {:<6}  {}",
+            "#", "ID", "STATE", "METHOD", "STATUS", "URL PATTERN"
         );
-        for rule in &reply.rules {
+        for (position, rule) in reply.rules.iter().enumerate() {
             let id = rule.id.as_deref().unwrap_or("-");
             let state = if rule.enabled { "on" } else { "off" };
             let method = rule.method.as_deref().unwrap_or("ANY");
             println!(
-                "{:<12}  {:<5}  {:<7}  {:<6}  {}",
-                id, state, method, rule.status, rule.url_pattern
+                "{:<3}  {:<12}  {:<5}  {:<7}  {:<6}  {}",
+                position, id, state, method, rule.status, rule.url_pattern
             );
         }
     }
@@ -755,6 +807,25 @@ mod tests {
         let params = build_remove_params("abcd", &RemoveArgs { id: " m_1 ".into() }).unwrap();
         assert_eq!(params.action, MockAction::Remove);
         assert_eq!(params.id.as_deref(), Some("m_1"), "id is trimmed");
+    }
+
+    #[test]
+    fn move_carries_the_id_and_the_position() {
+        let params = build_move_params("abcd", &MoveArgs { id: " m_1 ".into(), to: 0 })
+            .expect("valid move params");
+        assert_eq!(params.action, MockAction::Move);
+        assert_eq!(params.id.as_deref(), Some("m_1"), "id is trimmed");
+        // Position 0 has to reach the wire: it is the position that wins, not an
+        // unset value.
+        assert_eq!(params.to, Some(0));
+        assert!(params.rule.is_none());
+        assert!(params.rules.is_none());
+    }
+
+    #[test]
+    fn move_requires_a_non_empty_id() {
+        let err = build_move_params("abcd", &MoveArgs { id: "  ".into(), to: 1 }).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"), "{err}");
     }
 
     #[test]
